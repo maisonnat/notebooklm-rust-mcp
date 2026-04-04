@@ -1,183 +1,155 @@
-# Referencia de API
+---
+title: "API Reference — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+lang: en
+scan_type: full
+---
 
-## Herramientas MCP
+# API Reference
 
-### notebook_list
+## MCP Tools
 
-Lista todas las libretas disponibles en la cuenta.
+### `notebook_list`
 
-```json
-{
-  "name": "notebook_list",
-  "description": "List all notebooks available in the account"
-}
+List all notebooks available in the account.
+
+**Parameters:** None
+
+**Returns:** Formatted string with notebook list.
+
+```
+Notebooks: [Notebook { id: "uuid", title: "My Notebook" }, ...]
 ```
 
-**Retorna:**
-```
-Notebooks: [{"id": "uuid-1", "title": "Mi Libreta"}, ...]
-```
+---
 
-### notebook_create
+### `notebook_create`
 
-Crea una nueva libreta.
+Create a new notebook by title.
 
-```json
-{
-  "name": "notebook_create",
-  "description": "Create a new notebook by title",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "title": { "type": "string", "description": "Title for the new notebook" }
-    },
-    "required": ["title"]
-  }
-}
-```
+**Parameters:**
 
-**Parámetros:**
-- `title` (string, required) — Título de la libreta
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | `string` | Title for the new notebook |
 
-**Retorna:**
+**Returns:** Created notebook ID.
+
 ```
 Cuaderno creado. ID: <uuid>
 ```
 
-### source_add
+---
 
-Añade una fuente de texto a una libreta.
+### `source_add`
 
-```json
-{
-  "name": "source_add",
-  "description": "Add a text source to a notebook",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
-      "title": { "type": "string", "description": "Title of the source" },
-      "content": { "type": "string", "description": "Text content" }
-    },
-    "required": ["notebook_id", "title", "content"]
-  }
-}
-```
+Add a text source to a notebook.
 
-**Parámetros:**
-- `notebook_id` (string, required) — UUID de la libreta
-- `title` (string, required) — Título de la fuente
-- `content` (string, required) — Contenido de texto
+**Parameters:**
 
-**Retorna:**
-```
-Fuente añadida. ID: <source_uuid>
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `notebook_id` | `string` | UUID of the target notebook |
+| `title` | `string` | Title for the source |
+| `content` | `string` | Text content of the source |
 
-### ask_question
-
-Hace una pregunta al chatbot de una libreta.
-
-```json
-{
-  "name": "ask_question",
-  "description": "Ask a question to a notebook",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
-      "question": { "type": "string", "description": "Question to ask" }
-    },
-    "required": ["notebook_id", "question"]
-  }
-}
-```
-
-**Parámetros:**
-- `notebook_id` (string, required) — UUID de la libreta
-- `question` (string, required) — Pregunta a realizar
-
-**Retorna:**
-```
-<respuesta del chatbot>
-```
-
-## Recursos MCP
-
-### notebook://{uuid}
-
-Recursos que representan libretas de NotebookLM.
+**Returns:** Source ID.
 
 ```
-notebook://550e8400-e29b-41d4-a716-446655440000
+Fuente añadida. ID: <uuid>
 ```
 
-**Contenido:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Mi Libreta",
-  "uri": "notebook://550e8400-e29b-41d4-a716-446655440000"
-}
-```
+---
 
-## CLI
+### `ask_question`
 
-### auth
+Ask a question to a notebook. The question is answered using all sources in the notebook as context.
 
-Guarda cookies encriptadas con DPAPI.
+**Parameters:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `notebook_id` | `string` | UUID of the target notebook |
+| `question` | `string` | Question to ask |
+
+**Returns:** AI-generated answer text.
+
+> **Note:** The notebook must have at least one indexed source. If no sources are available, returns an error.
+
+---
+
+## MCP Resources
+
+### `notebook://<uuid>`
+
+Read resource for each notebook.
+
+**Response:** JSON with `id`, `title`, and `uri`.
+
+---
+
+## CLI Commands
+
+### `auth`
+
+Manual authentication with cookie and CSRF token.
 
 ```bash
-notebooklm-mcp auth --cookie "..." --csrf "..."
+notebooklm-mcp auth --cookie "YOUR_COOKIE" --csrf "YOUR_CSRF"
 ```
 
-### auth-browser
+Credentials are encrypted with DPAPI and stored at `~/.notebooklm-mcp/session.bin`.
 
-Autenticación vía Chrome headless (recomendado).
+### `auth-browser` (Recommended)
+
+Browser-based authentication via Chrome headless.
 
 ```bash
 notebooklm-mcp auth-browser
 ```
 
-### auth-status
+Opens Chrome for Google login, extracts cookies via CDP, stores in OS keyring.
 
-Verifica estado de autenticación.
+### `auth-status`
+
+Check authentication state.
 
 ```bash
 notebooklm-mcp auth-status
 ```
 
-### verify
+Shows whether Chrome is available and if credentials are stored.
 
-Verifica conexión con NotebookLM.
+### `verify`
+
+E2E validation test against NotebookLM API.
 
 ```bash
 notebooklm-mcp verify
 ```
 
-### ask
+Creates a test notebook to verify the connection works.
 
-Hace una pregunta desde CLI.
+### `ask`
 
-```bash
-notebooklm-mcp ask --notebook-id "..." --question "..."
-```
-
-### add-source
-
-Añade una fuente desde CLI.
+Ask a question to a notebook directly from CLI.
 
 ```bash
-notebooklm-mcp add-source --notebook-id "..." --title "..." --content "..."
+notebooklm-mcp ask --notebook-id <uuid> --question "Your question"
 ```
 
-## Errores
+### `add-source`
 
-| Código | Descripción |
-|--------|-------------|
-| SESIÓN EXPIRADA | Cookies de Google expiraron — re-autenticar |
-| CSRF EXPIRADO | Token CSRF inválido — refresh automático |
-| FUENTE NO LISTA | Fuente indexándose — hacer polling |
-| RATE LIMITED | Demasiados requests — reducir concurrencia |
-| ERROR DE PARSEO | Respuesta inesperada de Google |
-| ERROR DE RED | Problema de conectividad |
+Add a text source to a notebook from CLI.
+
+```bash
+notebooklm-mcp add-source --notebook-id <uuid> --title "Source Title" --content "Source content"
+```
+
+---
+
+## Transport
+
+The MCP server communicates over **stdio** (stdin/stdout). Configure your MCP client to launch the binary and communicate via standard I/O.
