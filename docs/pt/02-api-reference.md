@@ -1,194 +1,155 @@
 ---
-title: "API Reference — NotebookLM MCP Server"
+title: "Referencia de API — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
 last_updated: "2026-04-04"
-last_commit: "b467e15"
+lang: pt
 scan_type: full
-tags: [rust, mcp, documentation]
-audience: developers
 ---
 
-# Referência da API (Português)
+# Referencia de API
 
 ## Ferramentas MCP
 
-### notebook_list
+### `notebook_list`
 
-Lista todos os cadernos disponíveis na conta.
+Lista todos os cadernos disponiveis na conta.
 
-```json
-{
-  "name": "notebook_list",
-  "description": "List all notebooks available in the account"
-}
+**Parametros:** Nenhum
+
+**Retorna:** String formatada com a lista de cadernos.
+
+```
+Notebooks: [Notebook { id: "uuid", title: "Meu Caderno" }, ...]
 ```
 
-**Retorna:**
-```
-Notebooks: [{"id": "uuid-1", "title": "Meu Caderno"}, ...]
-```
+---
 
-### notebook_create
+### `notebook_create`
 
-Cria um novo caderno.
+Cria um novo caderno com um titulo.
 
-```json
-{
-  "name": "notebook_create",
-  "description": "Create a new notebook by title",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "title": { "type": "string", "description": "Title for the new notebook" }
-    },
-    "required": ["title"]
-  }
-}
-```
+**Parametros:**
 
-**Parâmetros:**
-- `title` (string, required) — Título do caderno
+| Campo | Tipo | Descricao |
+|-------|------|-----------|
+| `title` | `string` | Titulo do novo caderno |
 
-**Retorna:**
+**Retorna:** ID do caderno criado.
+
 ```
 Caderno criado. ID: <uuid>
 ```
 
-### source_add
+---
+
+### `source_add`
 
 Adiciona uma fonte de texto a um caderno.
 
-```json
-{
-  "name": "source_add",
-  "description": "Add a text source to a notebook",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
-      "title": { "type": "string", "description": "Title of the source" },
-      "content": { "type": "string", "description": "Text content" }
-    },
-    "required": ["notebook_id", "title", "content"]
-  }
-}
+**Parametros:**
+
+| Campo | Tipo | Descricao |
+|-------|------|-----------|
+| `notebook_id` | `string` | UUID do caderno de destino |
+| `title` | `string` | Titulo da fonte |
+| `content` | `string` | Conteudo de texto da fonte |
+
+**Retorna:** ID da fonte.
+
+```
+Fonte adicionada. ID: <uuid>
 ```
 
-**Parâmetros:**
-- `notebook_id` (string, required) — UUID do caderno
-- `title` (string, required) — Título da fonte
-- `content` (string, required) — Conteúdo do texto
+---
 
-**Retorna:**
-```
-Fonte adicionada. ID: <source_uuid>
-```
+### `ask_question`
 
-### ask_question
+Faz uma pergunta a um caderno. A pergunta e respondida utilizando todas as fontes do caderno como contexto.
 
-Faz uma pergunta ao chatbot de um caderno.
+**Parametros:**
 
-```json
-{
-  "name": "ask_question",
-  "description": "Ask a question to a notebook",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
-      "question": { "type": "string", "description": "Question to ask" }
-    },
-    "required": ["notebook_id", "question"]
-  }
-}
-```
+| Campo | Tipo | Descricao |
+|-------|------|-----------|
+| `notebook_id` | `string` | UUID do caderno de destino |
+| `question` | `string` | Pergunta a ser feita |
 
-**Parâmetros:**
-- `notebook_id` (string, required) — UUID do caderno
-- `question` (string, required) — Pergunta a fazer
+**Retorna:** Texto da resposta gerada por IA.
 
-**Retorna:**
-```
-<resposta do chatbot>
-```
+> **Nota:** O caderno deve ter pelo menos uma fonte indexada. Se nao houver fontes disponiveis, retorna um erro.
+
+---
 
 ## Recursos MCP
 
-### notebook://{uuid}
+### `notebook://<uuid>`
 
-Recursos que representam cadernos do NotebookLM.
+Recurso de leitura para cada caderno.
 
-```
-notebook://550e8400-e29b-41d4-a716-446655440000
-```
+**Resposta:** JSON com `id`, `title` e `uri`.
 
-**Conteúdo:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Meu Caderno",
-  "uri": "notebook://550e8400-e29b-41d4-a716-446655440000"
-}
-```
+---
 
-## CLI
+## Comandos CLI
 
-### auth
+### `auth`
 
-Salva cookies encriptadas com DPAPI.
+Autenticacao manual com cookie e token CSRF.
 
 ```bash
-notebooklm-mcp auth --cookie "..." --csrf "..."
+notebooklm-mcp auth --cookie "YOUR_COOKIE" --csrf "YOUR_CSRF"
 ```
 
-### auth-browser
+As credenciais sao criptografadas com DPAPI e armazenadas em `~/.notebooklm-mcp/session.bin`.
 
-Autenticação via Chrome headless (recomendado).
+### `auth-browser` (Recomendado)
+
+Autenticacao baseada em browser via Chrome headless.
 
 ```bash
 notebooklm-mcp auth-browser
 ```
 
-### auth-status
+Abre o Chrome para login no Google, extrai cookies via CDP e armazena no keyring do SO.
 
-Verifica estado da autenticação.
+### `auth-status`
+
+Verifica o estado da autenticacao.
 
 ```bash
 notebooklm-mcp auth-status
 ```
 
-### verify
+Mostra se o Chrome esta disponivel e se ha credenciais armazenadas.
 
-Verifica conexão com NotebookLM.
+### `verify`
+
+Teste de validacao E2E contra a API do NotebookLM.
 
 ```bash
 notebooklm-mcp verify
 ```
 
-### ask
+Cria um caderno de teste para verificar se a conexao esta funcionando.
 
-Faz uma pergunta via CLI.
+### `ask`
 
-```bash
-notebooklm-mcp ask --notebook-id "..." --question "..."
-```
-
-### add-source
-
-Adiciona uma fonte via CLI.
+Faz uma pergunta a um caderno diretamente pela CLI.
 
 ```bash
-notebooklm-mcp add-source --notebook-id "..." --title "..." --content "..."
+notebooklm-mcp ask --notebook-id <uuid> --question "Sua pergunta"
 ```
 
-## Erros
+### `add-source`
 
-| Código | Descrição |
-|--------|-------------|
-| SESSÃO EXPIRADA | Cookies do Google expiraram — re-autenticar |
-| CSRF EXPIRADO | Token CSRF inválido — refresh automático |
-| FONTE NÃO PRONTA | Fonte sendo indexada — fazer polling |
-| RATE LIMITED | Muitos requests — reduzir concorrência |
-| ERROR DE PARSEO | Resposta inesperada do Google |
-| ERROR DE REDE | Problema de conectividade |
+Adiciona uma fonte de texto a um caderno pela CLI.
+
+```bash
+notebooklm-mcp add-source --notebook-id <uuid> --title "Titulo da Fonte" --content "Conteudo da fonte"
+```
+
+---
+
+## Transporte
+
+O servidor MCP se comunica via **stdio** (stdin/stdout). Configure seu cliente MCP para iniciar o binario e comunicar via I/O padrao.
