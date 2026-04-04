@@ -81,4 +81,4 @@ MIT License â€” ver [LICENSE](LICENSE) para detalles.
 
 ---
 
-Â¿Encontraste un bug? [AbrÃ­ un issue en GitHub](https://github.com/tu-repo/issues).
+Â¿Encontraste un bug? [AbrÃ­ un issue en GitHub](https://github.com/maisonnat/notebooklm-rust-mcp/issues).
