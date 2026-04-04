@@ -1,20 +1,20 @@
 # NotebookLM MCP Server
 
-> Servidor MCP (Model Context Protocol) no oficial para Google NotebookLM â€” permite a agentes IA interactuar con libretas NotebookLM.
+> Servidor MCP (Model Context Protocol) no oficial para Google NotebookLM — permite a agentes IA interactuar con libretas NotebookLM.
 
 [![Rust](https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![MCP](https://img.shields.io/badge/MCP-Protocol-blue?style=flat-square)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)](#estado)
 
-## DescripciÃ³n
+## Descripción
 
 Este servidor MCP permite a agentes IA y clientes MCP (Cursor, Claude Desktop, Windsurf) comunicarse con Google NotebookLM para:
 
-- âœ… Crear libretas nuevas
-- âœ… AÃ±adir fuentes (URLs, PDFs, YouTube, Google Docs)
-- âœ… Chatear con documentos
-- âœ… Gestionar conversaciones
+- ✅ Crear libretas nuevas
+- ✅ Añadir fuentes (URLs, PDFs, YouTube, Google Docs)
+- ✅ Chatear con documentos
+- ✅ Gestionar conversaciones
 
 ## Quick Start
 
@@ -22,27 +22,27 @@ Este servidor MCP permite a agentes IA y clientes MCP (Cursor, Claude Desktop, W
 # Compilar
 cargo build --release
 
-# Autenticarse (mÃ©todo recomendado)
+# Autenticarse (método recomendado)
 ./target/release/notebooklm-mcp auth-browser
 
-# Verificar conexiÃ³n
+# Verificar conexión
 ./target/release/notebooklm-mcp verify
 ```
 
-Luego configurÃ¡ tu cliente MCP apuntando al binario compilado.
+Luego configurá tu cliente MCP apuntando al binario compilado.
 
-## CaracterÃ­sticas
+## Características
 
-| CaracterÃ­stica | DescripciÃ³n |
+| Característica | Descripción |
 |----------------|-------------|
-| ðŸ”Œ **Servidor MCP Completo** | ImplementaciÃ³n full del protocolo MCP |
-| ðŸŒ **Browser Automation** | AutenticaciÃ³n via Chrome headless |
-| â±ï¸ **Rate Limiting** | ProtecciÃ³n contra lÃ­mites de Google |
-| ðŸ’¾ **Cache Conversacional** | Historial persistido |
-| ðŸ“¡ **Polling AutomÃ¡tico** | Monitoreo de fuentes |
-| ðŸ›¡ï¸ **Errores Estructurados** | Manejo robusto de excepciones |
+| 🔌 **Servidor MCP Completo** | Implementación full del protocolo MCP |
+| 🌐 **Browser Automation** | Autenticación via Chrome headless |
+| ⏱️ **Rate Limiting** | Protección contra límites de Google |
+| 💾 **Cache Conversacional** | Historial persistido |
+| 📡 **Polling Automático** | Monitoreo de fuentes |
+| 🛡️ **Errores Estructurados** | Manejo robusto de excepciones |
 
-## DocumentaciÃ³n
+## Documentación
 
 ### English
 - [Overview](docs/en/00-overview.md)
@@ -53,32 +53,32 @@ Luego configurÃ¡ tu cliente MCP apuntando al binario compilado.
 - [User Guide](docs/en/05-user-guide.md)
 - [Security Posture](docs/en/07-security-posture.md)
 
-### EspaÃ±ol
+### Español
 - [Overview](docs/es/00-overview.md)
 - [Arquitectura](docs/es/01-architecture.md)
 - [Referencia API](docs/es/02-api-reference.md)
 - [Modelos de Datos](docs/es/03-data-models.md)
-- [InstalaciÃ³n](docs/es/04-setup.md)
-- [GuÃ­a de Usuario](docs/es/05-user-guide.md)
+- [Instalación](docs/es/04-setup.md)
+- [Guía de Usuario](docs/es/05-user-guide.md)
 
-### PortuguÃªs
-- [VisÃ£o Geral](docs/pt/00-overview.md)
+### Português
+- [Visão Geral](docs/pt/00-overview.md)
 - [Arquitetura](docs/pt/01-architecture.md)
-- [ReferÃªncia API](docs/pt/02-api-reference.md)
+- [Referência API](docs/pt/02-api-reference.md)
 - [Modelos de Dados](docs/pt/03-data-models.md)
-- [ConfiguraÃ§Ã£o](docs/pt/04-setup.md)
-- [Guia do UsuÃ¡rio](docs/pt/05-user-guide.md)
+- [Configuração](docs/pt/04-setup.md)
+- [Guia do Usuário](docs/pt/05-user-guide.md)
 
 ## Estado
 
-> âš ï¸ **Experimental** â€” Este proyecto hace reverse engineering de APIs internas de Google. Usalo bajo tu propio riesgo.
+> ⚠️ **Experimental** — Este proyecto hace reverse engineering de APIs internas de Google. Usalo bajo tu propio riesgo.
 
-Este es un proyecto no oficial y no estÃ¡ afiliado, patrocinado ni respaldado por Google.
+Este es un proyecto no oficial y no está afiliado, patrocinado ni respaldado por Google.
 
 ## Licencia
 
-MIT License â€” ver [LICENSE](LICENSE) para detalles.
+MIT License — ver [LICENSE](LICENSE) para detalles.
 
 ---
 
-Â¿Encontraste un bug? [AbrÃ­ un issue en GitHub](https://github.com/maisonnat/notebooklm-rust-mcp/issues).
+¿Encontraste un bug? [Abrí un issue en GitHub](https://github.com/maisonnat/notebooklm-rust-mcp/issues).
