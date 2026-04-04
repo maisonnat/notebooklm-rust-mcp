@@ -1,194 +1,80 @@
 ---
-title: "Overview — NotebookLM MCP Server"
+title: "Modelos de Dados — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
 last_updated: "2026-04-04"
-last_commit: "b467e15"
+lang: pt
 scan_type: full
-tags: [rust, mcp, documentation]
-audience: both
 ---
 
-# Modelos de Dados (Português)
+# Modelos de Dados
 
-## Estruturas do Cliente
+## Entidades Principais
 
-### NotebookLmClient
-
-```rust
-pub struct NotebookLmClient {
-    http: Client,                    // reqwest HTTP client
-    csrf: String,                    // Token CSRF
-    limiter: Limiter,                // Rate limiter (governor)
-    conversation_cache: SharedConversationCache,
-    upload_semaphore: Semaphore,     // Max 2 uploads simultâneos
-}
-```
-
-### Notebook
+### `Notebook`
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notebook {
-    pub id: String,      // UUID de 36 caracteres
-    pub title: String,  // Título do caderno
+    pub id: String,    // UUID (36 caracteres)
+    pub title: String,
 }
 ```
 
-Exemplo:
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Notas de Reunião Q1"
-}
-```
-
-## Autenticação
-
-### BrowserCredentials
+### `BrowserCredentials`
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserCredentials {
-    pub cookie: String,   // "__Secure-1PSID=...; __Secure-1PSIDTS=..."
-    pub csrf: String,    // Token CSRF (SNlM0e)
+    pub cookie: String,  // "__Secure-1PSID=...; __Secure-1PSIDTS=..."
+    pub csrf: String,    // Valor do token SNlM0e
 }
 ```
 
-### AuthResult
+### `SessionData` (criptografado com DPAPI em disco)
 
 ```rust
-pub enum AuthResult {
-    Success(BrowserCredentials),
-    FallbackRequired(String),  // Chrome não disponível
-    Failed(String),            // Erro de autenticação
-}
-```
-
-### AuthStatus
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthStatus {
-    pub chrome_available: bool,           // Chrome instalado
-    pub has_stored_credentials: bool,     // Credenciais salvas
-}
-```
-
-## Erros
-
-### NotebookLmError
-
-```rust
-pub enum NotebookLmError {
-    SessionExpired(String),    // Sessão do Google expirou
-    CsrfExpired(String),       // Token CSRF inválido
-    SourceNotReady(String),    // Fonte em processamento
-    RateLimited(String),       // Rate limit atingido
-    ParseError(String),        // Erro de parsing
-    NetworkError(String),      // Erro de rede
-    Unknown(String),           // Erro genérico
-}
-```
-
-## Parser
-
-### RpcResponse
-
-```rust
-pub struct RpcResponse {
-    pub rpc_id: String,      // ID do método RPC (ex., "wXbhsf")
-    pub inner_json: Value,   // Payload parseado
-}
-```
-
-## Polling
-
-### PollerConfig
-
-```rust
-#[derive(Debug, Clone)]
-pub struct PollerConfig {
-    pub check_interval: Duration,  // Intervalo entre verificações (default: 2s)
-    pub timeout: Duration,       // Timeout total (default: 60s)
-    pub max_retries: usize,       // Max tentativas (default: 30)
-}
-```
-
-### SourceState
-
-```rust
-pub enum SourceState {
-    Ready,        // Fonte indexada e pronta
-    Processing,  // Ainda processando
-    Error(String), // Erro no processamento
-    Unknown,      // Estado não reconhecido
-}
-```
-
-## Cache
-
-### ConversationHistory
-
-```rust
-pub struct ConversationHistory {
-    pub messages: Vec<ConversationMessage>,
-}
-
-pub struct ConversationMessage {
-    pub question: String,
-    pub answer: String,
-}
-```
-
-### ConversationCache
-
-```rust
-pub struct ConversationCache {
-    conversations: RwLock<HashMap<String, (String, ConversationHistory)>>,
-    // notebook_id -> (conversation_id, histórico)
-}
-```
-
-## Request/Response DTOs
-
-### NotebookCreateRequest
-
-```rust
-pub struct NotebookCreateRequest {
-    pub title: String,
-}
-```
-
-### SourceAddRequest
-
-```rust
-pub struct SourceAddRequest {
-    pub notebook_id: String,
-    pub title: String,
-    pub content: String,
-}
-```
-
-### AskQuestionRequest
-
-```rust
-pub struct AskQuestionRequest {
-    pub notebook_id: String,
-    pub question: String,
-}
-```
-
-## Sessão
-
-### SessionData
-
-```rust
-#[derive(Serialize, Deserialize)]
 struct SessionData {
-    cookie: String,   // Cookies encriptadas
-    csrf: String,     // Token CSRF
+    cookie: String,
+    csrf: String,
 }
 ```
 
-Localização: `~/.notebooklm-mcp/session.bin` (encriptado com DPAPI)
+## Tipos de Requisicao MCP
+
+| Tipo | Campos |
+|------|--------|
+| `NotebookCreateRequest` | `title: String` |
+| `SourceAddRequest` | `notebook_id, title, content: String` |
+| `AskQuestionRequest` | `notebook_id, question: String` |
+
+## Tipos de Erro
+
+### `NotebookLmError`
+
+| Variante | Dispara | Recuperacao |
+|----------|---------|-------------|
+| `SessionExpired` | 401, nao autorizado | Reautenticar |
+| `CsrfExpired` | 400, proibido | Atualizar CSRF automaticamente |
+| `SourceNotReady` | Indexacao de fonte | Fazer polling para verificar prontidao |
+| `RateLimited` | 429, excesso de requisicoes | Reduzir o ritmo |
+| `ParseError` | Erros de JSON | Registrar log e retentar |
+| `NetworkError` | Conexao/timeout | Retentar com backoff |
+| `Unknown` | Nao classificado | Registrar log e investigar |
+
+Deteccao automatica via `from_string()` examina o texto de erro em busca de palavras-chave de status HTTP.
+
+## Tipos Internos
+
+| Tipo | Finalidade |
+|------|------------|
+| `ConversationMessage` | `{ question, answer: String }` |
+| `ConversationHistory` | `Vec<ConversationMessage>` |
+| `SourceState` | `Ready \| Processing \| Error \| Unknown` |
+| `PollerConfig` | `check_interval: 2s, timeout: 60s, max_retries: 30` |
+| `AuthResult` | `Success \| FallbackRequired \| Failed` |
+| `AuthStatus` | `{ chrome_available, has_stored_credentials: bool }` |
+| `RpcResponse` | `{ rpc_id, inner_json: Value }` |
+
+## Armazenamento
+
+- **Sem banco de dados** — `HashMap` em memoria + `RwLock`
+- **Credenciais:** Keyring do SO (primario) ou arquivo DPAPI em `~/.notebooklm-mcp/session.bin`
