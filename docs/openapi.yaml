@@ -1,0 +1,109 @@
+openapi: "3.0.3"
+info:
+  title: NotebookLM MCP Server — Internal RPC API
+  description: |
+    Documentation of the internal Google NotebookLM RPC endpoints
+    reverse-engineered by the notebooklm-mcp server.
+    This is NOT an official Google API.
+  version: "0.1.0"
+  license:
+    name: MIT
+
+servers:
+  - url: https://notebooklm.google.com
+    description: Google NotebookLM (internal)
+
+paths:
+  /_/LabsTailwindUi/data/batchexecute:
+    post:
+      summary: RPC Batch Execute
+      description: |
+        Google's internal RPC endpoint used for notebook operations.
+        All requests use `application/x-www-form-urlencoded` with `f.req` and `at` (CSRF) fields.
+      parameters:
+        - name: rpcids
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated RPC method IDs
+        - name: rt
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [c]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [f.req, at]
+              properties:
+                "f.req":
+                  type: string
+                  description: JSON-encoded RPC request array
+                at:
+                  type: string
+                  description: CSRF token (SNlM0e)
+      responses:
+        "200":
+          description: RPC response with anti-XSSI prefix
+          content:
+            text/plain:
+              schema:
+                type: string
+      x-rpc-methods:
+        wXbhsf:
+          description: List all notebooks
+          request: "[null, 1, null, []]"
+          response: "[[title, sources, uuid, ...], ...]"
+        CCqFvf:
+          description: Create a new notebook
+          request: '["title", null, null, [2], [1, ...]]'
+          response: '["", null, "uuid", ...]'
+        izAoDd:
+          description: Add a text source to a notebook
+          request: '[[[null, ["title", "content"], null, 2, ...]], "notebook_id", [2], [1, ...]]'
+          response: '[[["source_uuid"]], ...]'
+        rLM1Ne:
+          description: Get notebook sources
+          request: '["notebook_id", null, [2], null, 0]'
+          response: "[[title, sources, notebook_id, ...]]"
+
+  /_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed:
+    post:
+      summary: Ask Question (Streaming)
+      description: |
+        Streaming endpoint for asking questions to a notebook.
+        Returns chunked JSON responses with anti-XSSI prefix.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [f.req, at]
+              properties:
+                "f.req":
+                  type: string
+                  description: |
+                    JSON array with params:
+                    [null, [sources_array, question, history, config, conv_id, null, null, notebook_id, 1]]
+                at:
+                  type: string
+                  description: CSRF token (SNlM0e)
+      responses:
+        "200":
+          description: Streaming response chunks
+          content:
+            text/plain:
+              schema:
+                type: string
+
+tags:
+  - name: RPC
+    description: Internal Google batchexecute RPC methods
+  - name: Streaming
+    description: Streaming question/answer endpoint
