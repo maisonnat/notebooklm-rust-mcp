@@ -1,122 +1,90 @@
-# Instalación
+---
+title: "Setup — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+lang: en
+scan_type: full
+---
 
-## Requisitos
+# Setup
 
-- **Rust** 1.70+ (edición 2024)
-- **Windows** (para DPAPI) — en Linux/macOS hay fallback
-- **Google Chrome** (para autenticación automática)
+## Prerequisites
 
-## Compilación
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Rust | 1.70+ | Edition 2024 |
+| Chrome | Latest | For `auth-browser` |
+| Google Account | — | NotebookLM access |
+
+## Installation
 
 ```bash
-# Clonar el repositorio
-git clone <repo-url>
-cd notebooklm-mcp
-
-# Compilar
+git clone https://github.com/maisonnat/notebooklm-rust-mcp
+cd notebooklm-rust-mcp
 cargo build --release
-
-# El binario queda en target/release/notebooklm-mcp.exe
 ```
 
-## Autenticación
+Binary: `./target/release/notebooklm-mcp`
 
-### Método 1: Chrome headless (recomendado)
+## Authentication
 
-Este método abre una ventana de Chrome para que inicies sesión:
+### Browser Auth (Recommended)
 
 ```bash
 ./target/release/notebooklm-mcp auth-browser
 ```
 
-**Flujo:**
-1. Se abre ventana de Chrome
-2. Iniciás sesión en tu cuenta de Google
-3. El script detecta las cookies automáticamente
-4. Se guardan en Windows Credential Manager
+1. Chrome launches headlessly
+2. Complete Google login
+3. Cookies extracted via CDP
+4. Stored in OS keyring
 
-### Método 2: Manual
-
-Si preferís no usar Chrome:
-
-1. Abrí DevTools (F12) en notebooklm.google.com
-2. Application → Cookies → Copiá el valor de `__Secure-1PSID` y `__Secure-1PSIDTS`
-3. Hacé un GET a notebooklm.google.com y buscá `"SNlM0e":"..."` en el HTML
-4. Ejecutá:
+### Manual Auth
 
 ```bash
-notebooklm-mcp auth \
-  --cookie "__Secure-1PSID=xxx; __Secure-1PSIDTS=yyy" \
-  --csrf "SNlM0e_xxx"
+./target/release/notebooklm-mcp auth --cookie "..." --csrf "..."
 ```
 
-## Configuración del Cliente MCP
+Encrypted with DPAPI at `~/.notebooklm-mcp/session.bin`.
 
-### Cursor
+### Check Status
+
+```bash
+./target/release/notebooklm-mcp auth-status
+```
+
+## Verify
+
+```bash
+./target/release/notebooklm-mcp verify
+```
+
+## MCP Client Configuration
+
+Configure your client to launch the binary with stdio transport:
 
 ```json
 {
   "mcpServers": {
     "notebooklm": {
-      "command": "path/to/notebooklm-mcp.exe"
+      "command": "/path/to/notebooklm-mcp"
     }
   }
 }
 ```
 
-### Claude Desktop
-
-En `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "notebooklm": {
-      "command": "path/to/notebooklm-mcp.exe"
-    }
-  }
-}
-```
-
-### Windsurf
-
-```json
-{
-  "mcpServers": {
-    "notebooklm": {
-      "command": "path/to/notebooklm-mcp.exe"
-    }
-  }
-}
-```
-
-## Verificación
+## Tests
 
 ```bash
-# Ver estado de autenticación
-notebooklm-mcp auth-status
-
-# Probar conexión
-notebooklm-mcp verify
+cargo test
 ```
 
-Si ves "Libretas encontradas: [...]" ✓
+## Troubleshooting
 
-## Variables de Entorno
-
-No hay variables de entorno necesarias — las credenciales se guardan en:
-
-- **Windows**: Windows Credential Manager (via keyring) o DPAPI
-- **Fallback**: `~/.notebooklm-mcp/session.bin`
-
-## Actualización de Credenciales
-
-Las cookies de Google expiran frecuentemente. Si ves errores de autenticación:
-
-```bash
-# Regenerar credenciales
-notebooklm-mcp auth-browser
-
-# O manual
-notebooklm-mcp auth --cookie "nueva_cookie" --csrf "nuevo_csrf"
-```
+| Issue | Solution |
+|-------|----------|
+| "Servidor no autenticado" | Run `auth-browser` |
+| Chrome not found | Install Chrome or use manual `auth` |
+| Session expired | Re-run `auth-browser` |
+| Rate limited | Auto-handled (30 req/min limit) |
