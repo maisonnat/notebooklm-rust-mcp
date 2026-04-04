@@ -3,140 +3,149 @@ title: "Architecture — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
 last_updated: "2026-04-04"
-lang: en
+last_commit: "bfa6056"
 scan_type: full
+tags: [rust, mcp, documentation]
+audience: engineers
 ---
 
-# Architecture
+# Architecture — NotebookLM MCP Server
 
-## System Overview
+## System overview
+
+El servidor MCP recibe requests de clientes MCP via stdio, los procesa usando un cliente HTTP interno con rate limiting, y se comunica con las APIs internas de NotebookLM. Usa un parser defensivo para manejar las respuestas RPC de Google.
 
 ```mermaid
-graph TB
-    CLI["CLI (clap)"] -->|"auth-browser"| Browser["Chrome CDP<br/>headless_chrome"]
-    CLI -->|"stdio"| MCP["MCP Server<br/>(rmcp)"]
-    MCP -->|"tool calls"| Client["NotebookLmClient"]
-    Client -->|"HTTP POST"| Google["Google NotebookLM<br/>batchexecute RPC"]
-    Google -->|"RPC response"| Parser["Defensive Parser"]
-    Parser -->|"structured data"| Client
-    Client -->|"result"| MCP
-
-    Browser -->|"extract cookies"| Keyring["OS Keyring"]
-    Keyring -->|"fallback"| DPAPI["DPAPI<br/>(Windows)"]
-
-    subgraph "In-Memory State"
-        Cache["Conversation Cache<br/>RwLock + HashMap"]
-        Limiter["Rate Limiter<br/>governor (2s period)"]
-    end
-
-    Client --> Cache
-    Client --> Limiter
+graph TD
+    Client[MCP Client<br/>Cursor/Windsurf/Claude] -->|stdio| Server[notebooklm-mcp]
+    Server --> CLI[CLI Handler<br/>clap]
+    Server --> MCP[MCP Server<br/>rmcp]
+    Server --> Session[Session Manager<br/>DPAPI/Keyring]
+    Server --> ClientHTTP[NotebookLmClient]
+    ClientHTTP --> RateLimit[Rate Limiter<br/>governor]
+    ClientHTTP --> Parser[Parser RPC<br/>defensive]
+    ClientHTTP --> Cache[Conversation Cache]
+    ClientHTTP -->|HTTPS| Google[Google NotebookLM API]
+    
+    Auth[Browser Auth<br/>headless_chrome] -->|CDP| Chrome[Chrome Browser]
+    Auth --> Keyring[OS Keyring<br/>Windows Credential Manager]
 ```
 
-## Module Structure
+## Project type
 
-```
-src/
-├── main.rs                # CLI entrypoint + MCP server definition + DPAPI session
-├── notebooklm_client.rs   # HTTP client for NotebookLM RPC API
-├── parser.rs              # Defensive parser for Google RPC responses
-├── errors.rs              # Structured error enum
-├── auth_browser.rs        # Chrome CDP automation + keyring storage
-├── auth_helper.rs         # CSRF token extraction from HTML
-├── conversation_cache.rs  # In-memory conversation history per notebook
-└── source_poller.rs       # Async polling for source readiness
-```
+**CLI tool + MCP Server** — Aplicación standalone que funciona tanto como herramienta CLI como servidor MCP. Opera como bridge entre agentes IA y las APIs internas de NotebookLM.
 
-## Module Responsibilities
+## Module breakdown
 
-### `main.rs` — Entry Point
-- CLI command parsing via `clap` (auth, auth-browser, verify, ask, add-source)
-- MCP server definition using `rmcp` macros (`#[tool_router]`, `#[tool_handler]`)
-- MCP resource listing (`notebook://` URIs)
-- Session management with DPAPI encryption (Windows fallback)
+| Module | Responsibility | Key files |
+|--------|---------------|-----------|
+| `main.rs` | Entry point, CLI parsing, MCP server, session management | `src/main.rs` |
+| `notebooklm_client.rs` | HTTP client, rate limiting, retry, conversation cache | `src/notebooklm_client.rs` |
+| `auth_browser.rs` | Browser automation, cookie extraction, keyring storage | `src/auth_browser.rs` |
+| `auth_helper.rs` | CSRF extraction, session validation | `src/auth_helper.rs` |
+| `parser.rs` | Defensive RPC parsing, anti-XSSI cleaning | `src/parser.rs` |
+| `source_poller.rs` | Source indexation polling | `src/source_poller.rs` |
+| `conversation_cache.rs` | Per-notebook conversation history | `src/conversation_cache.rs` |
+| `errors.rs` | Structured error types | `src/errors.rs` |
 
-### `notebooklm_client.rs` — HTTP Client
-- All RPC communication with Google's batchexecute endpoint
-- Rate limiting via `governor` (2-second quota period = ~30 req/min)
-- Exponential backoff with jitter for retries (max 3 retries, 30s cap)
-- Streaming response parsing for `ask_question`
-- Upload semaphore (max 2 concurrent uploads)
+## Entry points
 
-### `parser.rs` — Defensive Parser
-- Strips Google's anti-XSSI prefix (`)]}'`)
-- Extracts RPC responses by `rpc_id` from positional arrays
-- Safe array access (never `unwrap` on indices)
-- UUID validation (36-character strings)
+| Entry point | Purpose |
+|-------------|---------|
+| `cargo run` or binary | Inicia el servidor MCP via stdio |
+| `notebooklm-mcp auth-browser` | Autenticación browser automation |
+| `notebooklm-mcp auth --cookie --csrf` | Autenticación manual |
+| `notebooklm-mcp verify` | Verifica conexión con NotebookLM |
 
-### `errors.rs` — Structured Errors
-- `SessionExpired` — cookie expired, user must re-auth
-- `CsrfExpired` — CSRF token invalid, attempt auto-refresh
-- `SourceNotReady` — source still indexing, poll again
-- `RateLimited` — too many requests, back off
-- `ParseError` — malformed response from Google
-- `NetworkError` — connection/timeout failure
-- Auto-detection from HTTP status codes via `from_string()`
+## Design patterns
 
-### `auth_browser.rs` — Browser Authentication
-- Launches Chrome via CDP for Google login
-- Extracts `__Secure-1PSID` and `__Secure-1PSIDTS` cookies
-- Stores credentials in OS keyring (primary)
-- Falls back to DPAPI encrypted file (Windows)
+### Defensive parsing
 
-### `auth_helper.rs` — CSRF Management
-- Extracts `SNlM0e` CSRF token from NotebookLM HTML via regex
-- Validates session cookies (checks for 401/403/redirect)
-- 10-second timeout for HTTP requests
+**Where:** `src/parser.rs`
+**How:** Every accessor function (`get_string_at`, `get_uuid_at`, etc.) returns `Option<T>` instead of using unwrap(). All array accesses are bounds-checked.
+**Why:** Google's RPC responses are complex nested arrays with inconsistent structures. Defensive parsing prevents crashes when unexpected data appears.
 
-### `conversation_cache.rs` — Conversation History
-- `Arc<ConversationCache>` shared across the client
-- `RwLock<HashMap>` for concurrent read/write access
-- Reuses `conversation_id` per notebook (no new UUID per question)
+### Rate limiting with jitter
 
-### `source_poller.rs` — Source Readiness
-- Polls every 2 seconds (configurable) until source is indexed
-- 60-second timeout with 30 max retries (configurable)
-- `SourceState` enum: Ready | Processing | Error | Unknown
+**Where:** `src/notebooklm_client.rs`
+**How:** Uses `governor` crate with 2 req/sec quota. Adds random jitter (100-1000ms) between requests.
+**Why:** Google's API has strict rate limits. Jitter prevents thundering herd when many clients retry after a rate limit.
 
-## Design Patterns
+### Conversation caching
 
-| Pattern | Where | Why |
-|---------|-------|-----|
-| `Arc<RwLock<T>>` | Client state, conversation cache | Shared mutable state across async tasks |
-| Rate limiter (token bucket) | `governor::RateLimiter` | Prevent Google API abuse |
-| Exponential backoff + jitter | `batchexecute_with_retry` | Avoid thundering herd on errors |
-| Defensive parsing | `parser.rs` | Google API returns fragile positional arrays |
-| Keyring-first + fallback | `auth_browser.rs` | Cross-platform credential storage |
-| Builder pattern | `rmcp::ServerCapabilities` | MCP server configuration |
+**Where:** `src/conversation_cache.rs`
+**How:** Stores (notebook_id, conversation_id, history) in a RwLock-protected HashMap.
+**Why:** NotebookLM's streaming API requires a conversation ID that persists across questions. The cache ensures the same conversation ID is reused.
 
-## Data Flow
+## Key architectural decisions
+
+| Decision | Rationale | Trade-off |
+|----------|-----------|-----------|
+| MCP via rmcp | Protocolo estándar para agentes IA | Añade dependencia de rmcp |
+| Chrome headless para auth | Extrae HttpOnly cookies que no se pueden copiar manualmente | Requiere Chrome instalado |
+| DPAPI para Windows | Encriptación nativa sin dependencias externas | Solo funciona en Windows |
+| Rate limiting 2 req/s | Protege cuenta de Google de bans | Throughput limitado |
+| Parser defensivo | Las APIs de Google cambian frecuentemente | Más código que parsing simple |
+
+> [!NOTE] 🧑‍💻 For engineers
+> La decisión de usar Chrome headless fue tomada porque las cookies `__Secure-1PSID` tienen el flag HttpOnly y no pueden accederse desde JavaScript.
+
+## Data flow
+
+El flujo típico de una pregunta al chatbot:
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant MCP as MCP Server
-    participant Client as NotebookLmClient
-    participant Google as Google API
+    participant Client as MCP Client
+    participant Server as notebooklm-mcp
+    participant Cache as Conversation Cache
+    participant Google as NotebookLM API
 
-    User->>MCP: ask_question(notebook_id, question)
-    MCP->>Client: get_notebook_sources(notebook_id)
-    Client->>Google: POST batchexecute (rLM1Ne)
-    Google-->>Client: source IDs
-    Client->>Client: Build params with history
-    Client->>Google: POST GenerateFreeFormStreamed
-    Google-->>Client: Streaming chunks
-    Client->>Client: Parse streaming response
-    Client->>Client: Cache conversation
-    Client-->>MCP: Answer text
-    MCP-->>User: Result
+    Client->>Server: ask_question(notebook_id, question)
+    Server->>Cache: get_or_create(notebook_id)
+    Server->>Google: GET notebook sources
+    Google-->>Server: source IDs
+    Server->>Google: POST GenerateFreeFormStreamed
+    Google-->>Server: Streaming response
+    Server->>Cache: add_message(question, answer)
+    Server-->>Client: answer
 ```
 
-## RPC Endpoints Used
+## External integrations
 
-| RPC ID | Operation | Endpoint |
-|--------|-----------|----------|
-| `wXbhsf` | List notebooks | batchexecute |
-| `CCqFvf` | Create notebook | batchexecute |
-| `izAoDd` | Add source | batchexecute |
-| `rLM1Ne` | Get notebook sources | batchexecute |
-| `GenerateFreeFormStreamed` | Ask question | Streaming endpoint |
+| Service | Purpose | How connected |
+|---------|---------|--------------|
+| Google NotebookLM API | Core functionality | HTTP batchexecute + streaming |
+| Chrome (CDP) | Browser automation | headless_chrome crate |
+| Windows Credential Manager | Secure credential storage | keyring crate |
+| Windows DPAPI | Fallback encryption | windows-dpapi crate |
+
+> [!NOTE]
+> See [[02-api-reference]] for the public interface surface.
+> See [[03-data-models]] for entity relationships.
+> See [[07-security-posture]] for security analysis.
+
+---
+
+## Architectural history
+
+### Period 1: Initial implementation (2026-04-03)
+
+El proyecto nació como una implementación en Rust del proyecto Python `notebooklm-py`. El foco inicial fue:
+- Implementar el servidor MCP básico con rmcp
+- Descubrir los RPC IDs de la API (wXbhsf, CCqFvf, izAoDd, rLM1Ne)
+- Implementar autenticación manual con DPAPI
+
+### Period 2: Browser automation (2026-04-04)
+
+Se añadió autenticación via Chrome headless para:
+- Eliminar la necesidad de copiar cookies manualmente
+- Extraer cookies HttpOnly que no se pueden ver en DevTools
+- Proveer una experiencia de usuario más fluida
+
+### Current state
+
+El servidor está operativo con 4 tools MCP funcionando. Los próximos desafíos incluyen:
+- Mejorar el parsing de respuestas streaming
+- Añadir soporte para Linux/macOS en credential storage
+- Mejorar manejo de errores y recovery

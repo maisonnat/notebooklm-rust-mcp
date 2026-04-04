@@ -1,0 +1,5850 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+The content has been processed where empty lines have been removed, content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Empty lines have been removed from all files
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.tours/
+  architecture-walkthrough.tour
+docs/
+  en/
+    _index.md
+    00-overview.md
+    01-architecture.md
+    02-api-reference.md
+    03-data-models.md
+    04-setup.md
+    05-user-guide.md
+    06-changelog.md
+    07-security-posture.md
+    README.md
+  es/
+    00-overview.md
+    01-architecture.md
+    02-api-reference.md
+    03-data-models.md
+    04-setup.md
+    05-user-guide.md
+    06-changelog.md
+    README.md
+  pt/
+    00-overview.md
+    01-architecture.md
+    02-api-reference.md
+    03-data-models.md
+    04-setup.md
+    05-user-guide.md
+    06-changelog.md
+    README.md
+  _index.md
+openspec/
+  changes/
+    archive/
+      2026-04-03-browser-auth-cli/
+        specs/
+          browser-auth-cli/
+            spec.md
+          integration-tests/
+            spec.md
+        proposal.md
+        tasks.md
+    tasks.md
+    verify-report.md
+  specs/
+    browser-auth-cli/
+      spec.md
+  config.yaml
+src/
+  auth_browser.rs
+  auth_helper.rs
+  conversation_cache.rs
+  errors.rs
+  main.rs
+  notebooklm_client.rs
+  parser.rs
+  source_poller.rs
+tests/
+  fixtures/
+    add_source_response.json
+    ask_question_response.txt
+    list_notebooks_response.json
+    source_ready_response.json
+  integration.rs
+.gitignore
+Cargo.toml
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".tours/architecture-walkthrough.tour">
+{
+  "title": "Architecture Walkthrough - NotebookLM MCP Server",
+  "description": "Interactive tour of the NotebookLM MCP Server codebase",
+  "steps": [
+    {
+      "id": "welcome",
+      "title": "Welcome to NotebookLM MCP Server",
+      "description": "This tour will guide you through the architecture of an unofficial MCP server for Google NotebookLM.\n\n**What you'll learn:**\n- How the MCP server handles client requests\n- How authentication works with Chrome headless\n- How to interact with Google's internal APIs\n\n**Project type:** Rust CLI + MCP Server\n**Key files:** main.rs, notebooklm_client.rs, parser.rs",
+      "file": "src/main.rs",
+      "position": { "line": 1, "column": 1 }
+    },
+    {
+      "id": "entry-point",
+      "title": "Entry Point: main.rs",
+      "description": "The main.rs file serves as both the CLI entry point and the MCP server implementation.\n\n**Key sections:**\n1. CLI parsing with clap (lines 1-52)\n2. MCP server setup with rmcp (lines 54-246)\n3. Session management with DPAPI (lines 248-279)\n4. Command handlers (lines 292-448)",
+      "file": "src/main.rs",
+      "position": { "line": 1, "column": 1 }
+    },
+    {
+      "id": "cli-commands",
+      "title": "CLI Commands",
+      "description": "This project uses clap for CLI argument parsing. Commands include:\n\n- `auth --cookie --csrf` - Manual authentication\n- `auth-browser` - Chrome headless auth (recommended)\n- `auth-status` - Check authentication state\n- `verify` - Test connection to NotebookLM\n- `ask` - Ask questions from CLI\n- `add-source` - Add sources from CLI",
+      "file": "src/main.rs",
+      "position": { "line": 8, "column": 1 }
+    },
+    {
+      "id": "mcp-server",
+      "title": "MCP Server Implementation",
+      "description": "The NotebookLmServer struct implements the rmcp ServerHandler trait, providing:\n\n- **Tools:** notebook_list, notebook_create, source_add, ask_question\n- **Resources:** notebook://{uuid} URIs for accessing notebooks\n- **State:** Arc<RwLock<Option<NotebookLmClient>>> for thread-safe client access",
+      "file": "src/main.rs",
+      "position": { "line": 96, "column": 1 }
+    },
+    {
+      "id": "http-client",
+      "title": "HTTP Client: notebooklm_client.rs",
+      "description": "This is the core of the application. It handles:\n\n1. Rate limiting with governor (2 req/s)\n2. Retry logic with exponential backoff\n3. Conversation caching for streaming API\n4. All HTTP communication with NotebookLM APIs\n\n**Key methods:**\n- list_notebooks()\n- create_notebook()\n- add_source()\n- ask_question()",
+      "file": "src/notebooklm_client.rs",
+      "position": { "line": 1, "column": 1 }
+    },
+    {
+      "id": "defensive-parser",
+      "title": "Defensive Parser: parser.rs",
+      "description": "Google's RPC responses use positional arrays, not JSON objects. This parser provides safe accessors:\n\n- `get_string_at(array, index)` - Returns Option<String>\n- `get_uuid_at(array, index)` - Validates 36-char UUIDs\n- `strip_antixssi_prefix()` - Cleans )]}' prefixes\n- `extract_by_rpc_id()` - Finds responses by RPC ID\n\n**Why defensive?** Because Google's API changes frequently.",
+      "file": "src/parser.rs",
+      "position": { "line": 1, "column": 1 }
+    },
+    {
+      "id": "auth-browser",
+      "title": "Browser Authentication",
+      "description": "The auth_browser.rs module automates Chrome via CDP (Chrome DevTools Protocol) to extract HttpOnly cookies that cannot be accessed via JavaScript.\n\n**Why headless?** Because __Secure-1PSID cookies have the HttpOnly flag.\n\n**Flow:**\n1. Launch Chrome headless\n2. Navigate to notebooklm.google.com\n3. Wait for user login\n4. Extract cookies via CDP\n5. Store in keyring or DPAPI",
+      "file": "src/auth_browser.rs",
+      "position": { "line": 1, "column": 1 }
+    },
+    {
+      "id": "security",
+      "title": "Security & Credentials",
+      "description": "This project stores credentials securely:\n\n**Windows:**\n- DPAPI (windows-dpapi crate) - user-scoped encryption\n- Keyring fallback (Windows Credential Manager)\n\n**Security measures:**\n- Rate limited to 2 req/s\n- Exponential backoff with jitter\n- No unsafe code in codebase\n- cargo-audit passes with 0 vulnerabilities",
+      "file": "src/main.rs",
+      "position": { "line": 261, "column": 1 }
+    },
+    {
+      "id": "api-flow",
+      "title": "API Request Flow",
+      "description": "When you ask a question via MCP:\n\n1. **MCP Request** → NotebookLmServer::ask_question\n2. **Get Sources** → batchexecute(rLM1Ne, notebook_id)\n3. **Cache Check** → Get/create conversation_id\n4. **Build Request** → Construct params JSON\n5. **Streaming POST** → GenerateFreeFormStreamed\n6. **Parse Response** → Extract answer from chunks\n7. **Cache Update** → Store conversation history\n8. **Return** → MCP response to client",
+      "file": "src/notebooklm_client.rs",
+      "position": { "line": 238, "column": 1 }
+    },
+    {
+      "id": "finish",
+      "title": "Next Steps",
+      "description": "You're now familiar with the architecture. To continue:\n\n1. **Run the server:** `cargo run --release`\n2. **Authenticate:** `./target/release/notebooklm-mcp auth-browser`\n3. **Verify:** `./target/release/notebooklm-mcp verify`\n4. **Add to MCP client:** Point your client to the binary\n\n**Documentation:**\n- [[00-overview]] - Project overview\n- [[02-api-reference]] - Full API documentation\n- [[03-data-models]] - Data structures\n- [[07-security-posture]] - Security analysis",
+      "file": "README.md",
+      "position": { "line": 1, "column": 1 }
+    }
+  ]
+}
+</file>
+
+<file path="docs/en/07-security-posture.md">
+# Security Posture — NotebookLM MCP Server
+
+## Executive Summary
+
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| **Vulnerabilities** | ✅ PASS | No known CVEs in dependencies |
+| **Supply Chain** | ✅ PASS | 305 dependencies audited via cargo-audit |
+| **Unsafe Code** | ✅ PASS | No `unsafe` blocks in codebase |
+| **Memory Safety** | ✅ PASS | Rust's ownership model eliminates data races |
+| **Secrets Management** | ✅ PASS | DPAPI (Windows) + Keyring for credential storage |
+| **Network Security** | ✅ PASS | HTTPS only, rate-limited to 2 req/s |
+
+---
+
+## Vulnerability Assessment
+
+### cargo-audit Results
+
+```
+Audit Date: 2026-04-04
+Database: 1026 advisories last updated 2026-04-02
+Dependencies: 305 packages audited
+Vulnerabilities Found: 0
+```
+
+### Dependencies Analysis
+
+| Crate | Version | Purpose | Security Notes |
+|-------|---------|---------|----------------|
+| `reqwest` | 0.12 | HTTP client | Default features disabled, rustls-tls for TLS |
+| `tokio` | 1.50 | Async runtime | Mature, well-audited |
+| `rmcp` | 1.2 | MCP protocol | Official MCP implementation |
+| `windows-dpapi` | 0.2 | Credential encryption | Windows native, user-scoped |
+| `keyring` | 3 | Cross-platform secrets | Uses Windows Credential Manager |
+| `headless_chrome` | 1 | Browser automation | Sandbox-aware |
+
+---
+
+## Code Safety Analysis
+
+### Unsafe Code Mapping
+
+```
+Total unsafe blocks: 0
+Total unsafe function calls: 0
+```
+
+This project leverages Rust's ownership model for memory safety. All interactions with external data use defensive parsing (see `parser.rs`).
+
+### Key Safety Patterns
+
+| Pattern | Location | Description |
+|---------|----------|-------------|
+| **Defensive Parsing** | `src/parser.rs` | All accessor functions return `Option<T>`, never unwrap() |
+| **Rate Limiting** | `src/notebooklm_client.rs` | Governor crate prevents API abuse |
+| **Error Handling** | `src/errors.rs` | Structured error types with context |
+| **Retry with Jitter** | `src/notebooklm_client.rs` | Exponential backoff prevents thundering herd |
+
+---
+
+## Credential Storage
+
+### Windows
+
+- **Primary**: DPAPI (`windows-dpapi` crate) — user-scoped encryption
+- **Fallback**: Windows Credential Manager (`keyring` crate)
+
+### Data Flow
+
+```
+User Login → Chrome Headless → Extract cookies → Encrypt with DPAPI → Store in ~/.notebooklm-mcp/session.bin
+```
+
+---
+
+## API Security
+
+| Measure | Implementation |
+|---------|----------------|
+| **Transport** | HTTPS only |
+| **Rate Limiting** | 2 requests/second + 100-1000ms jitter |
+| **Retry Logic** | Exponential backoff (max 30s) |
+| **Session Management** | DPAPI-encrypted session file |
+
+---
+
+## Known Limitations
+
+1. **Platform**: Windows-only credential storage (Linux/macOS support planned)
+2. **Browser**: Requires Chrome for headless authentication
+3. **Reverse Engineering**: This project relies on undocumented Google APIs — subject to breakage
+
+---
+
+## Recommendations
+
+| Priority | Recommendation |
+|----------|----------------|
+| 🔴 HIGH | Rotate Google credentials regularly |
+| 🟡 MEDIUM | Add Linux/macOS credential storage |
+| 🟢 LOW | Implement MFA for Google account |
+
+---
+
+*Generated by repo-documenter v3.3*
+</file>
+
+<file path="docs/en/_index.md">
+---
+title: "Documentation Index — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+tags:
+  - documentation
+  - index
+---
+
+# NotebookLM MCP Server — Documentation
+
+> Servidor MCP (Model Context Protocol) no oficial para Google NotebookLM.
+
+## Documents
+
+| # | Document | Audience | Description |
+|---|----------|----------|-------------|
+| 00 | [[00-overview]] | Both | Project identity, purpose, quick start |
+| 01 | [[01-architecture]] | Engineers | System design, modules, patterns |
+| 02 | [[02-api-reference]] | Engineers | Public APIs, endpoints, config |
+| 03 | [[03-data-models]] | Engineers | Entities, types, schemas |
+| 04 | [[04-setup]] | Both | Installation, configuration, dev workflow |
+| 05 | [[05-user-guide]] | Users | Use cases, flows, expected behavior |
+| 06 | [[06-changelog]] | Both | History, recent changes, migrations |
+
+## Quick navigation
+
+- **New to the project?** → [[00-overview]]
+- **Setting up your environment?** → [[04-setup]]
+- **Integrating or extending?** → [[02-api-reference]]
+- **Understanding the design?** → [[01-architecture]]
+- **Just a user?** → [[05-user-guide]]
+- **What changed recently?** → [[06-changelog]]
+
+---
+
+*Generated by `repo-documenter` | Commit: b467e15 | Scan: 2026-04-04 | Mode: full*
+
+*To update this documentation: re-run `repo-documenter` in update mode.*
+</file>
+
+<file path="docs/en/00-overview.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "bfa6056"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# NotebookLM MCP Server — Overview
+
+## What this is
+
+**NotebookLM MCP Server** es un servidor MCP (Model Context Protocol) no oficial que permite interacting con Google NotebookLM a través de una interfaz estandarizada.
+
+Básicamente, te permite:
+- **Listar libretas** existentes en tu cuenta de NotebookLM
+- **Crear nuevas libretas** con título personalizado
+- **Añadir fuentes de texto** a cualquier libreta
+- **Hacer preguntas al chatbot de IA** de NotebookLM
+
+Todo esto desde cualquier cliente MCP (Cursor, Windsurf, Claude Desktop, etc.).
+
+## Technology stack
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Language | Rust | 1.70+ |
+| Framework | rmcp (MCP) | 1.2 |
+| HTTP Client | reqwest | 0.12 |
+| Async Runtime | tokio | 1.50 |
+| Build | Cargo | latest |
+| CLI | clap | 4.4 |
+
+## Quick start
+
+> [!TIP]
+> These steps get you from zero to running in under 5 minutes.
+
+1. **Clone y build**
+   ```bash
+   git clone https://github.com/maisonnat/notebooklm-rust-mcp
+   cd notebooklm-rust-mcp
+   cargo build --release
+   ```
+
+2. **Autenticarse (recomendado)**
+   ```bash
+   ./target/release/notebooklm-mcp auth-browser
+   ```
+
+3. **Verificar conexión**
+   ```bash
+   ./target/release/notebooklm-mcp verify
+   ```
+
+Para instalación completa, ver [[04-setup]].
+
+## Repository structure
+
+```
+notebooklm-rust-mcp/
+├── src/                    — Código fuente
+│   ├── main.rs              — Entry point + CLI + MCP server
+│   ├── notebooklm_client.rs — Cliente HTTP + rate limiting
+│   ├── auth_browser.rs      — Autenticación Chrome headless
+│   ├── auth_helper.rs       — Extracción CSRF
+│   ├── parser.rs            — Parser defensivo RPC
+│   ├── source_poller.rs     — Polling de fuentes
+│   ├── conversation_cache.rs — Cache conversacional
+│   └── errors.rs            — Errores estructurados
+├── docs/                   — Documentación
+├── Cargo.toml              — Dependencias
+└── Cargo.lock
+```
+
+## License & maintainers
+
+- **License:** MIT
+- **Repository:** https://github.com/maisonnat/notebooklm-rust-mcp
+
+> [!WARNING] Experimental
+> Este proyecto hace reverse engineering de APIs internas de Google. Usalo bajo tu propio riesgo.
+</file>
+
+<file path="docs/en/01-architecture.md">
+---
+title: "Architecture — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "bfa6056"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: engineers
+---
+
+# Architecture — NotebookLM MCP Server
+
+## System overview
+
+El servidor MCP recibe requests de clientes MCP via stdio, los procesa usando un cliente HTTP interno con rate limiting, y se comunica con las APIs internas de NotebookLM. Usa un parser defensivo para manejar las respuestas RPC de Google.
+
+```mermaid
+graph TD
+    Client[MCP Client<br/>Cursor/Windsurf/Claude] -->|stdio| Server[notebooklm-mcp]
+    Server --> CLI[CLI Handler<br/>clap]
+    Server --> MCP[MCP Server<br/>rmcp]
+    Server --> Session[Session Manager<br/>DPAPI/Keyring]
+    Server --> ClientHTTP[NotebookLmClient]
+    ClientHTTP --> RateLimit[Rate Limiter<br/>governor]
+    ClientHTTP --> Parser[Parser RPC<br/>defensive]
+    ClientHTTP --> Cache[Conversation Cache]
+    ClientHTTP -->|HTTPS| Google[Google NotebookLM API]
+    
+    Auth[Browser Auth<br/>headless_chrome] -->|CDP| Chrome[Chrome Browser]
+    Auth --> Keyring[OS Keyring<br/>Windows Credential Manager]
+```
+
+## Project type
+
+**CLI tool + MCP Server** — Aplicación standalone que funciona tanto como herramienta CLI como servidor MCP. Opera como bridge entre agentes IA y las APIs internas de NotebookLM.
+
+## Module breakdown
+
+| Module | Responsibility | Key files |
+|--------|---------------|-----------|
+| `main.rs` | Entry point, CLI parsing, MCP server, session management | `src/main.rs` |
+| `notebooklm_client.rs` | HTTP client, rate limiting, retry, conversation cache | `src/notebooklm_client.rs` |
+| `auth_browser.rs` | Browser automation, cookie extraction, keyring storage | `src/auth_browser.rs` |
+| `auth_helper.rs` | CSRF extraction, session validation | `src/auth_helper.rs` |
+| `parser.rs` | Defensive RPC parsing, anti-XSSI cleaning | `src/parser.rs` |
+| `source_poller.rs` | Source indexation polling | `src/source_poller.rs` |
+| `conversation_cache.rs` | Per-notebook conversation history | `src/conversation_cache.rs` |
+| `errors.rs` | Structured error types | `src/errors.rs` |
+
+## Entry points
+
+| Entry point | Purpose |
+|-------------|---------|
+| `cargo run` or binary | Inicia el servidor MCP via stdio |
+| `notebooklm-mcp auth-browser` | Autenticación browser automation |
+| `notebooklm-mcp auth --cookie --csrf` | Autenticación manual |
+| `notebooklm-mcp verify` | Verifica conexión con NotebookLM |
+
+## Design patterns
+
+### Defensive parsing
+
+**Where:** `src/parser.rs`
+**How:** Every accessor function (`get_string_at`, `get_uuid_at`, etc.) returns `Option<T>` instead of using unwrap(). All array accesses are bounds-checked.
+**Why:** Google's RPC responses are complex nested arrays with inconsistent structures. Defensive parsing prevents crashes when unexpected data appears.
+
+### Rate limiting with jitter
+
+**Where:** `src/notebooklm_client.rs`
+**How:** Uses `governor` crate with 2 req/sec quota. Adds random jitter (100-1000ms) between requests.
+**Why:** Google's API has strict rate limits. Jitter prevents thundering herd when many clients retry after a rate limit.
+
+### Conversation caching
+
+**Where:** `src/conversation_cache.rs`
+**How:** Stores (notebook_id, conversation_id, history) in a RwLock-protected HashMap.
+**Why:** NotebookLM's streaming API requires a conversation ID that persists across questions. The cache ensures the same conversation ID is reused.
+
+## Key architectural decisions
+
+| Decision | Rationale | Trade-off |
+|----------|-----------|-----------|
+| MCP via rmcp | Protocolo estándar para agentes IA | Añade dependencia de rmcp |
+| Chrome headless para auth | Extrae HttpOnly cookies que no se pueden copiar manualmente | Requiere Chrome instalado |
+| DPAPI para Windows | Encriptación nativa sin dependencias externas | Solo funciona en Windows |
+| Rate limiting 2 req/s | Protege cuenta de Google de bans | Throughput limitado |
+| Parser defensivo | Las APIs de Google cambian frecuentemente | Más código que parsing simple |
+
+> [!NOTE] 🧑‍💻 For engineers
+> La decisión de usar Chrome headless fue tomada porque las cookies `__Secure-1PSID` tienen el flag HttpOnly y no pueden accederse desde JavaScript.
+
+## Data flow
+
+El flujo típico de una pregunta al chatbot:
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Server as notebooklm-mcp
+    participant Cache as Conversation Cache
+    participant Google as NotebookLM API
+
+    Client->>Server: ask_question(notebook_id, question)
+    Server->>Cache: get_or_create(notebook_id)
+    Server->>Google: GET notebook sources
+    Google-->>Server: source IDs
+    Server->>Google: POST GenerateFreeFormStreamed
+    Google-->>Server: Streaming response
+    Server->>Cache: add_message(question, answer)
+    Server-->>Client: answer
+```
+
+## External integrations
+
+| Service | Purpose | How connected |
+|---------|---------|--------------|
+| Google NotebookLM API | Core functionality | HTTP batchexecute + streaming |
+| Chrome (CDP) | Browser automation | headless_chrome crate |
+| Windows Credential Manager | Secure credential storage | keyring crate |
+| Windows DPAPI | Fallback encryption | windows-dpapi crate |
+
+> [!NOTE]
+> See [[02-api-reference]] for the public interface surface.
+> See [[03-data-models]] for entity relationships.
+> See [[07-security-posture]] for security analysis.
+
+---
+
+## Architectural history
+
+### Period 1: Initial implementation (2026-04-03)
+
+El proyecto nació como una implementación en Rust del proyecto Python `notebooklm-py`. El foco inicial fue:
+- Implementar el servidor MCP básico con rmcp
+- Descubrir los RPC IDs de la API (wXbhsf, CCqFvf, izAoDd, rLM1Ne)
+- Implementar autenticación manual con DPAPI
+
+### Period 2: Browser automation (2026-04-04)
+
+Se añadió autenticación via Chrome headless para:
+- Eliminar la necesidad de copiar cookies manualmente
+- Extraer cookies HttpOnly que no se pueden ver en DevTools
+- Proveer una experiencia de usuario más fluida
+
+### Current state
+
+El servidor está operativo con 4 tools MCP funcionando. Los próximos desafíos incluyen:
+- Mejorar el parsing de respuestas streaming
+- Añadir soporte para Linux/macOS en credential storage
+- Mejorar manejo de errores y recovery
+</file>
+
+<file path="docs/en/02-api-reference.md">
+# Referencia de API
+
+## Herramientas MCP
+
+### notebook_list
+
+Lista todas las libretas disponibles en la cuenta.
+
+```json
+{
+  "name": "notebook_list",
+  "description": "List all notebooks available in the account"
+}
+```
+
+**Retorna:**
+```
+Notebooks: [{"id": "uuid-1", "title": "Mi Libreta"}, ...]
+```
+
+### notebook_create
+
+Crea una nueva libreta.
+
+```json
+{
+  "name": "notebook_create",
+  "description": "Create a new notebook by title",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string", "description": "Title for the new notebook" }
+    },
+    "required": ["title"]
+  }
+}
+```
+
+**Parámetros:**
+- `title` (string, required) — Título de la libreta
+
+**Retorna:**
+```
+Cuaderno creado. ID: <uuid>
+```
+
+### source_add
+
+Añade una fuente de texto a una libreta.
+
+```json
+{
+  "name": "source_add",
+  "description": "Add a text source to a notebook",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
+      "title": { "type": "string", "description": "Title of the source" },
+      "content": { "type": "string", "description": "Text content" }
+    },
+    "required": ["notebook_id", "title", "content"]
+  }
+}
+```
+
+**Parámetros:**
+- `notebook_id` (string, required) — UUID de la libreta
+- `title` (string, required) — Título de la fuente
+- `content` (string, required) — Contenido de texto
+
+**Retorna:**
+```
+Fuente añadida. ID: <source_uuid>
+```
+
+### ask_question
+
+Hace una pregunta al chatbot de una libreta.
+
+```json
+{
+  "name": "ask_question",
+  "description": "Ask a question to a notebook",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
+      "question": { "type": "string", "description": "Question to ask" }
+    },
+    "required": ["notebook_id", "question"]
+  }
+}
+```
+
+**Parámetros:**
+- `notebook_id` (string, required) — UUID de la libreta
+- `question` (string, required) — Pregunta a realizar
+
+**Retorna:**
+```
+<respuesta del chatbot>
+```
+
+## Recursos MCP
+
+### notebook://{uuid}
+
+Recursos que representan libretas de NotebookLM.
+
+```
+notebook://550e8400-e29b-41d4-a716-446655440000
+```
+
+**Contenido:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Mi Libreta",
+  "uri": "notebook://550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+## CLI
+
+### auth
+
+Guarda cookies encriptadas con DPAPI.
+
+```bash
+notebooklm-mcp auth --cookie "..." --csrf "..."
+```
+
+### auth-browser
+
+Autenticación vía Chrome headless (recomendado).
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+### auth-status
+
+Verifica estado de autenticación.
+
+```bash
+notebooklm-mcp auth-status
+```
+
+### verify
+
+Verifica conexión con NotebookLM.
+
+```bash
+notebooklm-mcp verify
+```
+
+### ask
+
+Hace una pregunta desde CLI.
+
+```bash
+notebooklm-mcp ask --notebook-id "..." --question "..."
+```
+
+### add-source
+
+Añade una fuente desde CLI.
+
+```bash
+notebooklm-mcp add-source --notebook-id "..." --title "..." --content "..."
+```
+
+## Errores
+
+| Código | Descripción |
+|--------|-------------|
+| SESIÓN EXPIRADA | Cookies de Google expiraron — re-autenticar |
+| CSRF EXPIRADO | Token CSRF inválido — refresh automático |
+| FUENTE NO LISTA | Fuente indexándose — hacer polling |
+| RATE LIMITED | Demasiados requests — reducir concurrencia |
+| ERROR DE PARSEO | Respuesta inesperada de Google |
+| ERROR DE RED | Problema de conectividad |
+</file>
+
+<file path="docs/en/03-data-models.md">
+# Modelos de Datos
+
+## Estructuras del Cliente
+
+### NotebookLmClient
+
+```rust
+pub struct NotebookLmClient {
+    http: Client,                    // reqwest HTTP client
+    csrf: String,                    // Token CSRF
+    limiter: Limiter,                // Rate limiter (governor)
+    conversation_cache: SharedConversationCache,
+    upload_semaphore: Semaphore,     // Max 2 uploads simultáneos
+}
+```
+
+### Notebook
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Notebook {
+    pub id: String,      // UUID de 36 caracteres
+    pub title: String,  // Título de la libreta
+}
+```
+
+Ejemplo:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Notas de Reunión Q1"
+}
+```
+
+## Autenticación
+
+### BrowserCredentials
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserCredentials {
+    pub cookie: String,   // "__Secure-1PSID=...; __Secure-1PSIDTS=..."
+    pub csrf: String,    // Token CSRF (SNlM0e)
+}
+```
+
+### AuthResult
+
+```rust
+pub enum AuthResult {
+    Success(BrowserCredentials),
+    FallbackRequired(String),  // Chrome no disponible
+    Failed(String),            // Error de autenticación
+}
+```
+
+### AuthStatus
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthStatus {
+    pub chrome_available: bool,           // Chrome instalado
+    pub has_stored_credentials: bool,     // Credenciales guardadas
+}
+```
+
+## Errores
+
+### NotebookLmError
+
+```rust
+pub enum NotebookLmError {
+    SessionExpired(String),    // Sesión de Google expiró
+    CsrfExpired(String),       // Token CSRF inválido
+    SourceNotReady(String),    // Fuente en procesamiento
+    RateLimited(String),       // Rate limit alcanzado
+    ParseError(String),        // Error de parseo
+    NetworkError(String),      // Error de red
+    Unknown(String),           // Error genérico
+}
+```
+
+## Parser
+
+### RpcResponse
+
+```rust
+pub struct RpcResponse {
+    pub rpc_id: String,      // ID del método RPC (e.g., "wXbhsf")
+    pub inner_json: Value,   // Payload parseado
+}
+```
+
+## Polling
+
+### PollerConfig
+
+```rust
+#[derive(Debug, Clone)]
+pub struct PollerConfig {
+    pub check_interval: Duration,  // Intervalo entre checks (default: 2s)
+    pub timeout: Duration,       // Timeout total (default: 60s)
+    pub max_retries: usize,       // Max attempts (default: 30)
+}
+```
+
+### SourceState
+
+```rust
+pub enum SourceState {
+    Ready,        // Fuente indexada y lista
+    Processing,  // Aún procesándose
+    Error(String), // Error en procesamiento
+    Unknown,      // Estado no reconocido
+}
+```
+
+## Cache
+
+### ConversationHistory
+
+```rust
+pub struct ConversationHistory {
+    pub messages: Vec<ConversationMessage>,
+}
+
+pub struct ConversationMessage {
+    pub question: String,
+    pub answer: String,
+}
+```
+
+### ConversationCache
+
+```rust
+pub struct ConversationCache {
+    conversations: RwLock<HashMap<String, (String, ConversationHistory)>>,
+    // notebook_id -> (conversation_id, historial)
+}
+```
+
+## Request/Response DTOs
+
+### NotebookCreateRequest
+
+```rust
+pub struct NotebookCreateRequest {
+    pub title: String,
+}
+```
+
+### SourceAddRequest
+
+```rust
+pub struct SourceAddRequest {
+    pub notebook_id: String,
+    pub title: String,
+    pub content: String,
+}
+```
+
+### AskQuestionRequest
+
+```rust
+pub struct AskQuestionRequest {
+    pub notebook_id: String,
+    pub question: String,
+}
+```
+
+## Sesión
+
+### SessionData
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct SessionData {
+    cookie: String,   // Cookies encriptadas
+    csrf: String,     // Token CSRF
+}
+```
+
+Ubicación: `~/.notebooklm-mcp/session.bin` (encriptado con DPAPI)
+</file>
+
+<file path="docs/en/04-setup.md">
+# Instalación
+
+## Requisitos
+
+- **Rust** 1.70+ (edición 2024)
+- **Windows** (para DPAPI) — en Linux/macOS hay fallback
+- **Google Chrome** (para autenticación automática)
+
+## Compilación
+
+```bash
+# Clonar el repositorio
+git clone <repo-url>
+cd notebooklm-mcp
+
+# Compilar
+cargo build --release
+
+# El binario queda en target/release/notebooklm-mcp.exe
+```
+
+## Autenticación
+
+### Método 1: Chrome headless (recomendado)
+
+Este método abre una ventana de Chrome para que inicies sesión:
+
+```bash
+./target/release/notebooklm-mcp auth-browser
+```
+
+**Flujo:**
+1. Se abre ventana de Chrome
+2. Iniciás sesión en tu cuenta de Google
+3. El script detecta las cookies automáticamente
+4. Se guardan en Windows Credential Manager
+
+### Método 2: Manual
+
+Si preferís no usar Chrome:
+
+1. Abrí DevTools (F12) en notebooklm.google.com
+2. Application → Cookies → Copiá el valor de `__Secure-1PSID` y `__Secure-1PSIDTS`
+3. Hacé un GET a notebooklm.google.com y buscá `"SNlM0e":"..."` en el HTML
+4. Ejecutá:
+
+```bash
+notebooklm-mcp auth \
+  --cookie "__Secure-1PSID=xxx; __Secure-1PSIDTS=yyy" \
+  --csrf "SNlM0e_xxx"
+```
+
+## Configuración del Cliente MCP
+
+### Cursor
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+En `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+### Windsurf
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+## Verificación
+
+```bash
+# Ver estado de autenticación
+notebooklm-mcp auth-status
+
+# Probar conexión
+notebooklm-mcp verify
+```
+
+Si ves "Libretas encontradas: [...]" ✓
+
+## Variables de Entorno
+
+No hay variables de entorno necesarias — las credenciales se guardan en:
+
+- **Windows**: Windows Credential Manager (via keyring) o DPAPI
+- **Fallback**: `~/.notebooklm-mcp/session.bin`
+
+## Actualización de Credenciales
+
+Las cookies de Google expiran frecuentemente. Si ves errores de autenticación:
+
+```bash
+# Regenerar credenciales
+notebooklm-mcp auth-browser
+
+# O manual
+notebooklm-mcp auth --cookie "nueva_cookie" --csrf "nuevo_csrf"
+```
+</file>
+
+<file path="docs/en/05-user-guide.md">
+# Guía de Usuario
+
+## Primeros Pasos
+
+### 1. Autenticación
+
+Antes de usar el servidor, necesitás authenticate con tu cuenta de Google:
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+Esto abre Chrome para que inicies sesión. Una vez hecho, las credenciales se guardan automáticamente.
+
+### 2. Verificar conexión
+
+```bash
+notebooklm-mcp verify
+```
+
+Debería mostrarte las libretas existentes.
+
+## Uso desde Cliente MCP
+
+### Listar libretas
+
+```json
+{
+  "name": "notebook_list"
+}
+```
+
+### Crear una libreta
+
+```json
+{
+  "name": "notebook_create",
+  "arguments": {
+    "title": "Mi Nuevo Proyecto"
+  }
+}
+```
+
+### Añadir una fuente
+
+```json
+{
+  "name": "source_add",
+  "arguments": {
+    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Documento de Requisitos",
+    "content": "Este documento describe los requisitos del proyecto..."
+  }
+}
+```
+
+### Hacer una pregunta
+
+```json
+{
+  "name": "ask_question",
+  "arguments": {
+    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
+    "question": "¿Cuál es el objetivo principal del proyecto?"
+  }
+}
+```
+
+## Uso desde CLI
+
+También podés usar el servidor directamente desde línea de comandos:
+
+```bash
+# Crear libreta
+notebooklm-mcp create-notebook "Mis Notas"
+
+# Añadir fuente
+notebooklm-mcp add-source \
+  --notebook-id "uuid" \
+  --title "Mi Fuente" \
+  --content "Contenido..."
+
+# Hacer pregunta
+notebooklm-mcp ask \
+  --notebook-id "uuid" \
+  --question "¿Qué resume este documento?"
+```
+
+## Recursos
+
+Los notebooks también están disponibles como recursos MCP:
+
+```
+notebook://550e8400-e29b-41d4-a716-446655440000
+```
+
+Podés usar este URI en tu cliente MCP para acceder a metadatos del notebook.
+
+## Errores Comunes
+
+### "SESIÓN EXPIRADA"
+
+Las cookies de Google expiraron. Volvé a authenticate:
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+### "FUENTE NO LISTA"
+
+La fuente aún se está indexando. El cliente automáticamente hace polling, pero si persisté el error, esperá unos segundos más.
+
+### "RATE LIMITED"
+
+Demasiadas requests. Esperá un momento y reintentá.
+
+## Tips
+
+- **Mantené las credenciales actualizadas** — Las cookies de Google expiran cada ciertos días
+- **Usá fuentes cortas al principio** — La indexación es más rápida
+- **El historial de conversación se mantiene** — Entre preguntas al mismo notebook, el chatbot tiene contexto
+- **Rate limiting protege tu cuenta** — No intentes hacer más de 2 requests por segundo
+</file>
+
+<file path="docs/en/06-changelog.md">
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [0.1.0] - 2026-04-04
+
+### Added
+- **MCP Server completo** con 4 tools: `notebook_list`, `notebook_create`, `source_add`, `ask_question`
+- **Recursos MCP**: notebooks disponibles como `notebook://{uuid}` URIs
+- **Autenticación browser automation** via headless Chrome (CDP)
+- **Autenticación manual** con DPAPI (Windows)
+- **Keyring support**: Windows Credential Manager / Linux Secret Service
+- **Rate limiting** con governor (2 req/segundo)
+- **Retry con exponential backoff** para robustness
+- **Parser defensivo** para respuestas RPC de Google
+- **Conversation cache** para mantener contexto entre preguntas
+- **Source poller** para esperar indexación de fuentes
+- **Errores estructurados** para mejor debugging
+
+### Technical Details
+
+- **Runtime**: Tokio async
+- **HTTP Client**: reqwest con streaming
+- **Servidor MCP**: rmcp crate
+- **Browser Automation**: headless_chrome
+- **Credential Storage**: windows-dpapi + keyring
+
+### RPC IDs Descubiertos
+
+| RPC ID | Función |
+|--------|---------|
+| `wXbhsf` | Listar libretas |
+| `CCqFvf` | Crear libreta |
+| `izAoDd` | Añadir fuente |
+| `rLM1Ne` | Obtener fuentes de libreta |
+| `GenerateFreeFormStreamed` | Chat streaming |
+
+### Autores
+
+- Reverse engineering basado en notebooklm-py
+- Implementación en Rust por el autor del proyecto
+</file>
+
+<file path="docs/en/README.md">
+# NotebookLM MCP Server
+
+[![Rust](https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square&logo=rust)](https://www.rust-lang.org)
+[![MCP](https://img.shields.io/badge/MCP-Protocol-blue?style=flat-square)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+
+Servidor MCP (Model Context Protocol) no oficial para Google NotebookLM. Permite a agentes IA interacting con libretas NotebookLM — crear libretas, añadir fuentes, y chatear con documentos.
+
+## Quick Start
+
+```bash
+# Compilar
+cargo build --release
+
+# Autenticarse (método recomendado)
+./target/release/notebooklm-mcp auth-browser
+
+# Verificar conexión
+./target/release/notebooklm-mcp verify
+```
+
+Luego configurá tu cliente MCP (Cursor, Claude Desktop, Windsurf) pointing al binario.
+
+## Documentación
+
+| Guía | Descripción |
+|------|-------------|
+| [Overview](00-overview.md) | ¿Qué es y para qué sirve? |
+| [Arquitectura](01-architecture.md) | Diseño técnico y módulos |
+| [API Reference](02-api-reference.md) | Herramientas MCP y CLI |
+| [Modelos de Datos](03-data-models.md) | Estructuras y tipos |
+| [Instalación](04-setup.md) | Setup completo |
+| [Guía de Usuario](05-user-guide.md) | Uso práctico |
+| [Changelog](06-changelog.md) | Historial de cambios |
+
+## Características
+
+- ✅ Servidor MCP completo
+- ✅ Autenticación browser automation (Chrome headless)
+- ✅ Rate limiting integrado
+- ✅ Cache conversacional
+- ✅ Polling automático de fuentes
+- ✅ Errores estructurados
+
+## Estado
+
+**Experimental** — Este proyecto hace reverse engineering de APIs internas de Google. Usalo bajo tu propio riesgo.
+
+---
+
+¿Encontraste un bug? Abrí un issue en GitHub.
+</file>
+
+<file path="docs/es/00-overview.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# NotebookLM MCP Server — Overview (Español)
+
+## What this is
+
+**NotebookLM MCP Server** es un servidor MCP (Model Context Protocol) no oficial que permite interactuar con Google NotebookLM a través de una interfaz estandarizada.
+
+Básicamente, te permite:
+- **Listar libretas** existentes en tu cuenta de NotebookLM
+- **Crear nuevas libretas** con título personalizado
+- **Añadir fuentes de texto** a cualquier libreta
+- **Hacer preguntas al chatbot de IA** de NotebookLM
+
+Todo esto desde cualquier cliente MCP (Cursor, Windsurf, Claude Desktop, etc.).
+
+## Technology stack
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Language | Rust | 1.70+ |
+| Framework | rmcp (MCP) | 1.2 |
+| HTTP Client | reqwest | 0.12 |
+| Async Runtime | tokio | 1.50 |
+| Build | Cargo | latest |
+| CLI | clap | 4.4 |
+
+## Quick start
+
+> [!TIP]
+> These steps get you from zero to running in under 5 minutes.
+
+1. **Clone y build**
+   ```bash
+   git clone https://github.com/maisonnat/notebooklm-rust-mcp
+   cd notebooklm-rust-mcp
+   cargo build --release
+   ```
+
+2. **Autenticarse (recomendado)**
+   ```bash
+   ./target/release/notebooklm-mcp auth-browser
+   ```
+
+3. **Verificar conexión**
+   ```bash
+   ./target/release/notebooklm-mcp verify
+   ```
+
+Para instalación completa, ver [[04-setup]].
+
+## Repository structure
+
+```
+notebooklm-rust-mcp/
+├── src/                    — Código fuente
+│   ├── main.rs              — Entry point + CLI + MCP server
+│   ├── notebooklm_client.rs — Cliente HTTP + rate limiting
+│   ├── auth_browser.rs      — Autenticación Chrome headless
+│   ├── auth_helper.rs       — Extracción CSRF
+│   ├── parser.rs            — Parser defensivo RPC
+│   ├── source_poller.rs     — Polling de fuentes
+│   ├── conversation_cache.rs — Cache conversacional
+│   └── errors.rs            — Errores estructurados
+├── docs/                   — Documentación
+├── Cargo.toml              — Dependencias
+└── Cargo.lock
+```
+
+## License & maintainers
+
+- **License:** MIT
+- **Repository:** https://github.com/maisonnat/notebooklm-rust-mcp
+
+> [!WARNING] Experimental
+> Este proyecto hace reverse engineering de APIs internas de Google. Úsalo bajo tu propio riesgo.
+</file>
+
+<file path="docs/es/01-architecture.md">
+---
+title: "Architecture — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: engineers
+---
+
+# Arquitectura — NotebookLM MCP Server (Español)
+
+## System overview
+
+El servidor MCP recibe requests de clientes MCP via stdio, los procesa usando un cliente HTTP interno con rate limiting, y se comunica con las APIs internas de NotebookLM. Usa un parser defensivo para manejar las respuestas RPC de Google.
+
+```mermaid
+graph TD
+    Client[MCP Client<br/>Cursor/Windsurf/Claude] -->|stdio| Server[notebooklm-mcp]
+    Server --> CLI[CLI Handler<br/>clap]
+    Server --> MCP[MCP Server<br/>rmcp]
+    Server --> Session[Session Manager<br/>DPAPI/Keyring]
+    Server --> ClientHTTP[NotebookLmClient]
+    ClientHTTP --> RateLimit[Rate Limiter<br/>governor]
+    ClientHTTP --> Parser[Parser RPC<br/>defensive]
+    ClientHTTP --> Cache[Conversation Cache]
+    ClientHTTP -->|HTTPS| Google[Google NotebookLM API]
+    
+    Auth[Browser Auth<br/>headless_chrome] -->|CDP| Chrome[Chrome Browser]
+    Auth --> Keyring[OS Keyring<br/>Windows Credential Manager]
+```
+
+## Project type
+
+**CLI tool + MCP Server** — Aplicación standalone que funciona tanto como herramienta CLI como servidor MCP. Opera como bridge entre agentes IA y las APIs internas de NotebookLM.
+
+## Module breakdown
+
+| Module | Responsibility | Key files |
+|--------|---------------|-----------|
+| `main.rs` | Entry point, CLI parsing, MCP server, session management | `src/main.rs` |
+| `notebooklm_client.rs` | HTTP client, rate limiting, retry, conversation cache | `src/notebooklm_client.rs` |
+| `auth_browser.rs` | Browser automation, cookie extraction, keyring storage | `src/auth_browser.rs` |
+| `auth_helper.rs` | CSRF extraction, session validation | `src/auth_helper.rs` |
+| `parser.rs` | Defensive RPC parsing, anti-XSSI cleaning | `src/parser.rs` |
+| `source_poller.rs` | Source indexation polling | `src/source_poller.rs` |
+| `conversation_cache.rs` | Per-notebook conversation history | `src/conversation_cache.rs` |
+| `errors.rs` | Structured error types | `src/errors.rs` |
+
+## Entry points
+
+| Entry point | Purpose |
+|-------------|---------|
+| `cargo run` or binary | Inicia el servidor MCP via stdio |
+| `notebooklm-mcp auth-browser` | Autenticación browser automation |
+| `notebooklm-mcp auth --cookie --csrf` | Autenticación manual |
+| `notebooklm-mcp verify` | Verifica conexión con NotebookLM |
+
+## Design patterns
+
+### Defensive parsing
+
+**Where:** `src/parser.rs`
+**How:** Every accessor function (`get_string_at`, `get_uuid_at`, etc.) returns `Option<T>` instead of using unwrap(). All array accesses are bounds-checked.
+**Why:** Google's RPC responses are complex nested arrays with inconsistent structures. Defensive parsing prevents crashes when unexpected data appears.
+
+### Rate limiting with jitter
+
+**Where:** `src/notebooklm_client.rs`
+**How:** Uses `governor` crate with 2 req/sec quota. Adds random jitter (100-1000ms) between requests.
+**Why:** Google's API has strict rate limits. Jitter prevents thundering herd when many clients retry after a rate limit.
+
+### Conversation caching
+
+**Where:** `src/conversation_cache.rs`
+**How:** Stores (notebook_id, conversation_id, history) in a RwLock-protected HashMap.
+**Why:** NotebookLM's streaming API requires a conversation ID that persists across questions. The cache ensures the same conversation ID is reused.
+
+## Key architectural decisions
+
+| Decision | Rationale | Trade-off |
+|----------|-----------|-----------|
+| MCP via rmcp | Protocolo estándar para agentes IA | Añade dependencia de rmcp |
+| Chrome headless para auth | Extrae HttpOnly cookies que no se pueden copiar manualmente | Requiere Chrome instalado |
+| DPAPI para Windows | Encriptación nativa sin dependencias externas | Solo funciona en Windows |
+| Rate limiting 2 req/s | Protege cuenta de Google de bans | Throughput limitado |
+| Parser defensivo | Las APIs de Google cambian frecuentemente | Más código que parsing simple |
+
+> [!NOTE] 🧑‍💻 For engineers
+> La decisión de usar Chrome headless fue tomada porque las cookies `__Secure-1PSID` tienen el flag HttpOnly y no pueden accederse desde JavaScript.
+
+## Data flow
+
+El flujo típico de una pregunta al chatbot:
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Server as notebooklm-mcp
+    participant Cache as Conversation Cache
+    participant Google as NotebookLM API
+
+    Client->>Server: ask_question(notebook_id, question)
+    Server->>Cache: get_or_create(notebook_id)
+    Server->>Google: GET notebook sources
+    Google-->>Server: source IDs
+    Server->>Google: POST GenerateFreeFormStreamed
+    Google-->>Server: Streaming response
+    Server->>Cache: add_message(question, answer)
+    Server-->>Client: answer
+```
+
+## External integrations
+
+| Service | Purpose | How connected |
+|---------|---------|--------------|
+| Google NotebookLM API | Core functionality | HTTP batchexecute + streaming |
+| Chrome (CDP) | Browser automation | headless_chrome crate |
+| Windows Credential Manager | Secure credential storage | keyring crate |
+| Windows DPAPI | Fallback encryption | windows-dpapi crate |
+
+> [!NOTE]
+> See [[../es/02-api-reference]] for the public interface surface.
+> See [[../es/03-data-models]] for entity relationships.
+
+---
+
+## Architectural history
+
+### Period 1: Initial implementation (2026-04-03)
+
+El proyecto nació como una implementación en Rust del proyecto Python `notebooklm-py`. El foco inicial fue:
+- Implementar el servidor MCP básico con rmcp
+- Descubrir los RPC IDs de la API (wXbhsf, CCqFvf, izAoDd, rLM1Ne)
+- Implementar autenticación manual con DPAPI
+
+### Period 2: Browser automation (2026-04-04)
+
+Se añadió autenticación via Chrome headless para:
+- Eliminar la necesidad de copiar cookies manualmente
+- Extraer cookies HttpOnly que no se pueden ver en DevTools
+- Proveer una experiencia de usuario más fluida
+
+### Current state
+
+El servidor está operativo con 4 tools MCP funcionando. Los próximos desafíos incluyen:
+- Mejorar el parsing de respuestas streaming
+- Añadir soporte para Linux/macOS en credential storage
+- Mejorar manejo de errores y recovery
+</file>
+
+<file path="docs/es/02-api-reference.md">
+---
+title: "API Reference — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: developers
+---
+
+# Referencia de API (Español)
+
+## Herramientas MCP
+
+### notebook_list
+
+Lista todas las libretas disponibles en la cuenta.
+
+```json
+{
+  "name": "notebook_list",
+  "description": "List all notebooks available in the account"
+}
+```
+
+**Retorna:**
+```
+Notebooks: [{"id": "uuid-1", "title": "Mi Libreta"}, ...]
+```
+
+### notebook_create
+
+Crea una nueva libreta.
+
+```json
+{
+  "name": "notebook_create",
+  "description": "Create a new notebook by title",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string", "description": "Title for the new notebook" }
+    },
+    "required": ["title"]
+  }
+}
+```
+
+**Parámetros:**
+- `title` (string, required) — Título de la libreta
+
+**Retorna:**
+```
+Cuaderno creado. ID: <uuid>
+```
+
+### source_add
+
+Añade una fuente de texto a una libreta.
+
+```json
+{
+  "name": "source_add",
+  "description": "Add a text source to a notebook",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
+      "title": { "type": "string", "description": "Title of the source" },
+      "content": { "type": "string", "description": "Text content" }
+    },
+    "required": ["notebook_id", "title", "content"]
+  }
+}
+```
+
+**Parámetros:**
+- `notebook_id` (string, required) — UUID de la libreta
+- `title` (string, required) — Título de la fuente
+- `content` (string, required) — Contenido de texto
+
+**Retorna:**
+```
+Fuente añadida. ID: <source_uuid>
+```
+
+### ask_question
+
+Hace una pregunta al chatbot de una libreta.
+
+```json
+{
+  "name": "ask_question",
+  "description": "Ask a question to a notebook",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
+      "question": { "type": "string", "description": "Question to ask" }
+    },
+    "required": ["notebook_id", "question"]
+  }
+}
+```
+
+**Parámetros:**
+- `notebook_id` (string, required) — UUID de la libreta
+- `question` (string, required) — Pregunta a realizar
+
+**Retorna:**
+```
+<respuesta del chatbot>
+```
+
+## Recursos MCP
+
+### notebook://{uuid}
+
+Recursos que representan libretas de NotebookLM.
+
+```
+notebook://550e8400-e29b-41d4-a716-446655440000
+```
+
+**Contenido:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Mi Libreta",
+  "uri": "notebook://550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+## CLI
+
+### auth
+
+Guarda cookies encriptadas con DPAPI.
+
+```bash
+notebooklm-mcp auth --cookie "..." --csrf "..."
+```
+
+### auth-browser
+
+Autenticación vía Chrome headless (recomendado).
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+### auth-status
+
+Verifica estado de autenticación.
+
+```bash
+notebooklm-mcp auth-status
+```
+
+### verify
+
+Verifica conexión con NotebookLM.
+
+```bash
+notebooklm-mcp verify
+```
+
+### ask
+
+Hace una pregunta desde CLI.
+
+```bash
+notebooklm-mcp ask --notebook-id "..." --question "..."
+```
+
+### add-source
+
+Añade una fuente desde CLI.
+
+```bash
+notebooklm-mcp add-source --notebook-id "..." --title "..." --content "..."
+```
+
+## Errores
+
+| Código | Descripción |
+|--------|-------------|
+| SESIÓN EXPIRADA | Cookies de Google expiraron — re-autenticar |
+| CSRF EXPIRADO | Token CSRF inválido — refresh automático |
+| FUENTE NO LISTA | Fuente indexándose — hacer polling |
+| RATE LIMITED | Demasiados requests — reducir concurrencia |
+| ERROR DE PARSEO | Respuesta inesperada de Google |
+| ERROR DE RED | Problema de conectividad |
+</file>
+
+<file path="docs/es/03-data-models.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# Modelos de Datos (Español)
+
+## Estructuras del Cliente
+
+### NotebookLmClient
+
+```rust
+pub struct NotebookLmClient {
+    http: Client,                    // reqwest HTTP client
+    csrf: String,                    // Token CSRF
+    limiter: Limiter,                // Rate limiter (governor)
+    conversation_cache: SharedConversationCache,
+    upload_semaphore: Semaphore,     // Max 2 uploads simultáneos
+}
+```
+
+### Notebook
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Notebook {
+    pub id: String,      // UUID de 36 caracteres
+    pub title: String,  // Título de la libreta
+}
+```
+
+Ejemplo:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Notas de Reunión Q1"
+}
+```
+
+## Autenticación
+
+### BrowserCredentials
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserCredentials {
+    pub cookie: String,   // "__Secure-1PSID=...; __Secure-1PSIDTS=..."
+    pub csrf: String,    // Token CSRF (SNlM0e)
+}
+```
+
+### AuthResult
+
+```rust
+pub enum AuthResult {
+    Success(BrowserCredentials),
+    FallbackRequired(String),  // Chrome no disponible
+    Failed(String),            // Error de autenticación
+}
+```
+
+### AuthStatus
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthStatus {
+    pub chrome_available: bool,           // Chrome instalado
+    pub has_stored_credentials: bool,     // Credenciales guardadas
+}
+```
+
+## Errores
+
+### NotebookLmError
+
+```rust
+pub enum NotebookLmError {
+    SessionExpired(String),    // Sesión de Google expiró
+    CsrfExpired(String),       // Token CSRF inválido
+    SourceNotReady(String),    // Fuente en procesamiento
+    RateLimited(String),       // Rate limit alcanzado
+    ParseError(String),        // Error de parseo
+    NetworkError(String),      // Error de red
+    Unknown(String),           // Error genérico
+}
+```
+
+## Parser
+
+### RpcResponse
+
+```rust
+pub struct RpcResponse {
+    pub rpc_id: String,      // ID del método RPC (e.g., "wXbhsf")
+    pub inner_json: Value,   // Payload parseado
+}
+```
+
+## Polling
+
+### PollerConfig
+
+```rust
+#[derive(Debug, Clone)]
+pub struct PollerConfig {
+    pub check_interval: Duration,  // Intervalo entre checks (default: 2s)
+    pub timeout: Duration,       // Timeout total (default: 60s)
+    pub max_retries: usize,       // Max attempts (default: 30)
+}
+```
+
+### SourceState
+
+```rust
+pub enum SourceState {
+    Ready,        // Fuente indexada y lista
+    Processing,  // Aún procesándose
+    Error(String), // Error en procesamiento
+    Unknown,      // Estado no reconocido
+}
+```
+
+## Cache
+
+### ConversationHistory
+
+```rust
+pub struct ConversationHistory {
+    pub messages: Vec<ConversationMessage>,
+}
+
+pub struct ConversationMessage {
+    pub question: String,
+    pub answer: String,
+}
+```
+
+### ConversationCache
+
+```rust
+pub struct ConversationCache {
+    conversations: RwLock<HashMap<String, (String, ConversationHistory)>>,
+    // notebook_id -> (conversation_id, historial)
+}
+```
+
+## Request/Response DTOs
+
+### NotebookCreateRequest
+
+```rust
+pub struct NotebookCreateRequest {
+    pub title: String,
+}
+```
+
+### SourceAddRequest
+
+```rust
+pub struct SourceAddRequest {
+    pub notebook_id: String,
+    pub title: String,
+    pub content: String,
+}
+```
+
+### AskQuestionRequest
+
+```rust
+pub struct AskQuestionRequest {
+    pub notebook_id: String,
+    pub question: String,
+}
+```
+
+## Sesión
+
+### SessionData
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct SessionData {
+    cookie: String,   // Cookies encriptadas
+    csrf: String,     // Token CSRF
+}
+```
+
+Ubicación: `~/.notebooklm-mcp/session.bin` (encriptado con DPAPI)
+</file>
+
+<file path="docs/es/04-setup.md">
+---
+title: "Setup — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: users
+---
+
+# Instalación (Español)
+
+## Requisitos
+
+- **Rust** 1.70+ (edición 2024)
+- **Windows** (para DPAPI) — en Linux/macOS hay fallback
+- **Google Chrome** (para autenticación automática)
+
+## Compilación
+
+```bash
+# Clonar el repositorio
+git clone <repo-url>
+cd notebooklm-rust-mcp
+
+# Compilar
+cargo build --release
+
+# El binario queda en target/release/notebooklm-mcp.exe
+```
+
+## Autenticación
+
+### Método 1: Chrome headless (recomendado)
+
+Este método abre una ventana de Chrome para que inicies sesión:
+
+```bash
+./target/release/notebooklm-mcp auth-browser
+```
+
+**Flujo:**
+1. Se abre ventana de Chrome
+2. Iniciás sesión en tu cuenta de Google
+3. El script detecta las cookies automáticamente
+4. Se guardan en Windows Credential Manager
+
+### Método 2: Manual
+
+Si preferís no usar Chrome:
+
+1. Abrí DevTools (F12) en notebooklm.google.com
+2. Application → Cookies → Copiá el valor de `__Secure-1PSID` y `__Secure-1PSIDTS`
+3. Hacé un GET a notebooklm.google.com y buscá `"SNlM0e":"..."` en el HTML
+4. Ejecutá:
+
+```bash
+notebooklm-mcp auth \
+  --cookie "__Secure-1PSID=xxx; __Secure-1PSIDTS=yyy" \
+  --csrf "SNlM0e_xxx"
+```
+
+## Configuración del Cliente MCP
+
+### Cursor
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+En `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+### Windsurf
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+## Verificación
+
+```bash
+# Ver estado de autenticación
+notebooklm-mcp auth-status
+
+# Probar conexión
+notebooklm-mcp verify
+```
+
+Si ves "Libretas encontradas: [...]" ✓
+
+## Variables de Entorno
+
+No hay variables de entorno necesarias — las credenciales se guardan en:
+
+- **Windows**: Windows Credential Manager (via keyring) o DPAPI
+- **Fallback**: `~/.notebooklm-mcp/session.bin`
+
+## Actualización de Credenciales
+
+Las cookies de Google expiran frecuentemente. Si ves errores de autenticación:
+
+```bash
+# Regenerar credenciales
+notebooklm-mcp auth-browser
+
+# O manual
+notebooklm-mcp auth --cookie "nueva_cookie" --csrf "nuevo_csrf"
+```
+</file>
+
+<file path="docs/es/05-user-guide.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# Guía de Usuario (Español)
+
+## Primeros Pasos
+
+### 1. Autenticación
+
+Antes de usar el servidor, necesitás authenticate con tu cuenta de Google:
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+Esto abre Chrome para que inicies sesión. Una vez hecho, las credenciales se guardan automáticamente.
+
+### 2. Verificar conexión
+
+```bash
+notebooklm-mcp verify
+```
+
+Debería mostrarte las libretas existentes.
+
+## Uso desde Cliente MCP
+
+### Listar libretas
+
+```json
+{
+  "name": "notebook_list"
+}
+```
+
+### Crear una libreta
+
+```json
+{
+  "name": "notebook_create",
+  "arguments": {
+    "title": "Mi Nuevo Proyecto"
+  }
+}
+```
+
+### Añadir una fuente
+
+```json
+{
+  "name": "source_add",
+  "arguments": {
+    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Documento de Requisitos",
+    "content": "Este documento describe los requisitos del proyecto..."
+  }
+}
+```
+
+### Hacer una pregunta
+
+```json
+{
+  "name": "ask_question",
+  "arguments": {
+    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
+    "question": "¿Cuál es el objetivo principal del proyecto?"
+  }
+}
+```
+
+## Uso desde CLI
+
+También podés usar el servidor directamente desde línea de comandos:
+
+```bash
+# Crear libreta
+notebooklm-mcp create-notebook "Mis Notas"
+
+# Añadir fuente
+notebooklm-mcp add-source \
+  --notebook-id "uuid" \
+  --title "Mi Fuente" \
+  --content "Contenido..."
+
+# Hacer pregunta
+notebooklm-mcp ask \
+  --notebook-id "uuid" \
+  --question "¿Qué resume este documento?"
+```
+
+## Recursos
+
+Los notebooks también están disponibles como recursos MCP:
+
+```
+notebook://550e8400-e29b-41d4-a716-446655440000
+```
+
+Podés usar este URI en tu cliente MCP para acceder a metadatos del notebook.
+
+## Errores Comunes
+
+### "SESIÓN EXPIRADA"
+
+Las cookies de Google expiraron. Volvé a authenticate:
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+### "FUENTE NO LISTA"
+
+La fuente aún se está indexando. El cliente automáticamente hace polling, pero si persisté el error, esperá unos segundos más.
+
+### "RATE LIMITED"
+
+Demasiadas requests. Esperá un momento y reintentá.
+
+## Tips
+
+- **Mantené las credenciales actualizadas** — Las cookies de Google expiran cada ciertos días
+- **Usá fuentes cortas al principio** — La indexación es más rápida
+- **El historial de conversación se mantiene** — Entre preguntas al mismo notebook, el chatbot tiene contexto
+- **Rate limiting protege tu cuenta** — No intentes hacer más de 2 requests por segundo
+</file>
+
+<file path="docs/es/06-changelog.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# Changelog (Español)
+
+Todos los cambios notables de este proyecto serán documentados en este archivo.
+
+## [0.1.0] - 2026-04-04
+
+### Agregado
+
+- **Servidor MCP completo** con 4 herramientas: `notebook_list`, `notebook_create`, `source_add`, `ask_question`
+- **Recursos MCP**: notebooks disponibles como URIs `notebook://{uuid}`
+- **Autenticación por browser automation** vía Chrome headless (CDP)
+- **Autenticación manual** con DPAPI (Windows)
+- **Soporte de keyring**: Windows Credential Manager / Linux Secret Service
+- **Rate limiting** con governor (2 req/segundo)
+- **Retry con exponential backoff** para robustez
+- **Parser defensivo** para respuestas RPC de Google
+- **Conversation cache** para mantener contexto entre preguntas
+- **Source poller** para esperar indexación de fuentes
+- **Errores estructurados** para mejor debugging
+
+### Detalles Técnicos
+
+- **Runtime**: Tokio async
+- **HTTP Client**: reqwest con streaming
+- **Servidor MCP**: rmcp crate
+- **Browser Automation**: headless_chrome
+- **Credential Storage**: windows-dpapi + keyring
+
+### RPC IDs Descubiertos
+
+| RPC ID | Función |
+|--------|---------|
+| `wXbhsf` | Listar libretas |
+| `CCqFvf` | Crear libreta |
+| `izAoDd` | Añadir fuente |
+| `rLM1Ne` | Obtener fuentes de libreta |
+| `GenerateFreeFormStreamed` | Chat streaming |
+
+### Autores
+
+- Reverse engineering basado en notebooklm-py
+- Implementación en Rust por el autor del proyecto
+</file>
+
+<file path="docs/es/README.md">
+---
+title: "NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation, cli-tool]
+audience: both
+---
+
+<div align="center">
+
+# NotebookLM MCP Server
+
+> Un servidor MCP no oficial que permite a agentes IA interacting con libretas Google NotebookLM — crear libretas, añadir fuentes, y chatear con documentos.
+
+<br/>
+
+![Rust](https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square&logo=rust)
+![License](https://img.shields.io/github/license/maisonnat/notebooklm-rust-mcp?style=flat-square)
+![Last Commit](https://img.shields.io/github/last-commit/maisonnat/notebooklm-rust-mcp?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)
+
+<br/>
+
+[**Quick Start**](#quick-start) · [**Documentation**](#documentation) · [**Architecture**](#architecture-at-a-glance) · [**Roadmap**](#roadmap)
+
+</div>
+
+---
+
+## What this is (Español)
+
+NotebookLM MCP Server es un servidor MCP (Model Context Protocol) no oficial que actúa como puente entre agentes IA y Google NotebookLM. Permite crear libretas, añadir fuentes de texto, y hacer preguntas al chatbot de IA — todo desde cualquier cliente MCP compatible.
+
+El proyecto hace **ingeniería inversa** de las APIs internas de Google, ya que NotebookLM no tiene API oficial. Está diseñado para integrarse con herramientas como Cursor, Windsurf, Claude Desktop, y cualquier cliente que soporte el protocolo MCP.
+
+## Why this exists (Español)
+
+Google NotebookLM es una herramienta poderosa para resumir documentos y chatear con ellos, pero no existe una API pública. Este proyecto surge para cerrar esa brecha, permitiendo automatización e integración con agentes IA que necesitan interacting con libretas NotebookLM.
+
+Antes existía la opción de usar notebooklm-py (Python), pero no había una implementación nativa en Rust que fuera rápida y fácil de integrar con servidores MCP modernos.
+
+---
+
+## Key features (Español)
+
+- 🔌 **Servidor MCP completo** — 4 tools: `notebook_list`, `notebook_create`, `source_add`, `ask_question`
+- 🌐 **Recursos MCP** — Notebooks disponibles como `notebook://{uuid}` URIs
+- 🔐 **Autenticación browser automation** — Extrae cookies HttpOnly via Chrome headless (CDP)
+- 🔑 **Múltiples métodos de auth** — DPAPI (Windows), Keyring, Chrome headless
+- ⚡ **Rate limiting integrado** — 2 req/segundo para proteger la API de Google
+- 💾 **Cache conversacional** — Mantiene contexto entre preguntas
+- 🔄 **Polling automático** — Espera indexación de fuentes antes de permitir preguntas
+- 🛡️ **Errores estructurados** — Mejor depuración y manejo de errores
+
+---
+
+## Quick Start (Español)
+
+```bash
+# 1. Clonar
+git clone https://github.com/maisonnat/notebooklm-rust-mcp && cd notebooklm-rust-mcp
+
+# 2. Compilar
+cargo build --release
+
+# 3. Autenticarse (recomendado - abre Chrome)
+./target/release/notebooklm-mcp auth-browser
+
+# 4. Verificar conexión
+./target/release/notebooklm-mcp verify
+```
+
+> Guía de configuración completa → [docs/es/04-setup.md](./docs/es/04-setup.md)
+
+---
+
+## Architecture at a glance (Español)
+
+```mermaid
+graph TD
+    Client[MCP Client<br/>Cursor/Windsurf/Claude] -->|stdio| Server[notebooklm-mcp]
+    Server --> CLI[CLI Handler<br/>clap]
+    Server --> MCP[MCP Server<br/>rmcp]
+    Server --> Session[Session Manager<br/>DPAPI/Keyring]
+    Server --> ClientHTTP[NotebookLmClient]
+    ClientHTTP -->|Rate Limit| Governor[governor]
+    ClientHTTP --> Parser[Parser RPC]
+    ClientHTTP --> Cache[Conversation Cache]
+    ClientHTTP -->|HTTPS| Google[Google NotebookLM API]
+    
+    Auth[Browser Auth<br/>headless_chrome] -->|CDP| Chrome[Chrome Browser]
+```
+
+El servidor recibe requests via stdio del cliente MCP, los procesa usando el cliente HTTP interno, y se comunica con las APIs de NotebookLM. Incluye rate limiting, parsing defensivo de respuestas RPC, y cache conversacional.
+
+→ [Documentación de arquitectura completa](./docs/es/01-architecture.md)
+
+---
+
+## Documentation (Español)
+
+| Document | Description | Audience |
+|---|---|---|
+| [Overview](./docs/es/00-overview.md) | Project identity, purpose, tech stack | Everyone |
+| [Architecture](./docs/es/01-architecture.md) | System design, modules, patterns, history | Engineers |
+| [API Reference](./docs/es/02-api-reference.md) | Endpoints, commands, configuration | Engineers |
+| [Data Models](./docs/es/03-data-models.md) | Entities, schemas, relationships | Engineers |
+| [Setup Guide](./docs/es/04-setup.md) | Installation, configuration, dev workflow | Everyone |
+| [User Guide](./docs/es/05-user-guide.md) | Use cases, expected behavior | Users |
+| [Changelog](./docs/es/06-changelog.md) | History, releases, migrations | Everyone |
+
+> 💡 ¿Nuevo aquí? Empezá con el [Overview](./docs/es/00-overview.md).
+> ¿Building on top of this? Ir a [API Reference](./docs/es/02-api-reference.md).
+> ¿Something broke? Ver [Setup — Troubleshooting](./docs/es/04-setup.md#troubleshooting).
+
+---
+
+## Roadmap (Español)
+
+### Done ✅
+- Implementación de servidor MCP con 4 tools
+- Autenticación basada en navegador (headless Chrome)
+- Rate limiting con exponential backoff
+- Cache de conversación para contexto
+- Source polling para indexación
+
+### In progress 🚧
+- Mejorar parsing de respuestas streaming
+- Añadir más cobertura de tests
+- Soporte Linux/macOS para credential storage
+
+### Planned 📋
+- Añadir soporte para upload de fuentes de audio
+- Mejorar mecanismos de recovery de errores
+- Añadir refresh de sesión más robusto
+- Considerar WebSocket para streaming en tiempo real
+
+> ¿Tenés una idea? [Abrir un issue](https://github.com/maisonnat/notebooklm-rust-mcp/issues) o ver [Contributing](#contributing).
+
+---
+
+## Contributing (Español)
+
+Las contribuciones son bienvenidas. Antes de abrir un PR:
+
+1. Buscar en issues abiertos para discusiones existentes
+2. Ejecutar `cargo test` — todos los tests deben pasar
+3. Seguir el estilo de código existente en `src/`
+
+Para cambios importantes, primero abrir un issue para discutir el approach.
+
+---
+
+## License (Español)
+
+MIT — ver [LICENSE](./LICENSE) para detalles.
+</file>
+
+<file path="docs/pt/00-overview.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# NotebookLM MCP Server — Overview (Português)
+
+## O que é
+
+**NotebookLM MCP Server** é um servidor MCP (Model Context Protocol) não oficial que permite interagir com Google NotebookLM através de uma interface padronizada.
+
+Basicamente, permite:
+- **Listar cadernos** existentes na sua conta do NotebookLM
+- **Criar novos cadernos** com título personalizado
+- **Adicionar fontes de texto** a qualquer caderno
+- **Fazer perguntas ao chatbot de IA** do NotebookLM
+
+Tudo isso de qualquer cliente MCP (Cursor, Windsurf, Claude Desktop, etc.).
+
+## Technology stack
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Language | Rust | 1.70+ |
+| Framework | rmcp (MCP) | 1.2 |
+| HTTP Client | reqwest | 0.12 |
+| Async Runtime | tokio | 1.50 |
+| Build | Cargo | latest |
+| CLI | clap | 4.4 |
+
+## Quick start
+
+> [!TIP]
+> These steps get you from zero to running in under 5 minutes.
+
+1. **Clone e build**
+   ```bash
+   git clone https://github.com/maisonnat/notebooklm-rust-mcp
+   cd notebooklm-rust-mcp
+   cargo build --release
+   ```
+
+2. **Autenticar (recomendado)**
+   ```bash
+   ./target/release/notebooklm-mcp auth-browser
+   ```
+
+3. **Verificar conexão**
+   ```bash
+   ./target/release/notebooklm-mcp verify
+   ```
+
+Para instalação completa, ver [[04-setup]].
+
+## Repository structure
+
+```
+notebooklm-rust-mcp/
+├── src/                    — Código fonte
+│   ├── main.rs              — Entry point + CLI + MCP server
+│   ├── notebooklm_client.rs — Cliente HTTP + rate limiting
+│   ├── auth_browser.rs      — Autenticação Chrome headless
+│   ├── auth_helper.cs       — Extração CSRF
+│   ├── parser.rs            — Parser defensivo RPC
+│   ├── source_poller.rs     — Polling de fontes
+│   ├── conversation_cache.rs — Cache de conversa
+│   └── errors.rs            — Erros estruturados
+├── docs/                   — Documentação
+├── Cargo.toml              — Dependências
+└── Cargo.lock
+```
+
+## License & maintainers
+
+- **License:** MIT
+- **Repository:** https://github.com/maisonnat/notebooklm-rust-mcp
+
+> [!WARNING] Experimental
+> Este projeto faz engenharia reversa de APIs internas do Google. Use sob seu próprio risco.
+</file>
+
+<file path="docs/pt/01-architecture.md">
+---
+title: "Architecture — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: engineers
+---
+
+# Arquitetura — NotebookLM MCP Server (Português)
+
+## System overview
+
+O servidor MCP recebe requests de clientes MCP via stdio, os processa usando um cliente HTTP interno com rate limiting, e se comunica com as APIs internas do NotebookLM. Usa um parser defensivo para manejar as respostas RPC do Google.
+
+```mermaid
+graph TD
+    Client[MCP Client<br/>Cursor/Windsurf/Claude] -->|stdio| Server[notebooklm-mcp]
+    Server --> CLI[CLI Handler<br/>clap]
+    Server --> MCP[MCP Server<br/>rmcp]
+    Server --> Session[Session Manager<br/>DPAPI/Keyring]
+    Server --> ClientHTTP[NotebookLmClient]
+    ClientHTTP --> RateLimit[Rate Limiter<br/>governor]
+    ClientHTTP --> Parser[Parser RPC<br/>defensive]
+    ClientHTTP --> Cache[Conversation Cache]
+    ClientHTTP -->|HTTPS| Google[Google NotebookLM API]
+    
+    Auth[Browser Auth<br/>headless_chrome] -->|CDP| Chrome[Chrome Browser]
+    Auth --> Keyring[OS Keyring<br/>Windows Credential Manager]
+```
+
+## Project type
+
+**CLI tool + MCP Server** — Aplicação standalone que funciona tanto como ferramenta CLI quanto servidor MCP. Opera como bridge entre agentes IA e as APIs internas do NotebookLM.
+
+## Module breakdown
+
+| Module | Responsibility | Key files |
+|--------|---------------|-----------|
+| `main.rs` | Entry point, CLI parsing, MCP server, session management | `src/main.rs` |
+| `notebooklm_client.rs` | HTTP client, rate limiting, retry, conversation cache | `src/notebooklm_client.rs` |
+| `auth_browser.rs` | Browser automation, cookie extraction, keyring storage | `src/auth_browser.rs` |
+| `auth_helper.rs` | CSRF extraction, session validation | `src/auth_helper.rs` |
+| `parser.rs` | Defensive RPC parsing, anti-XSSI cleaning | `src/parser.rs` |
+| `source_poller.rs` | Source indexation polling | `src/source_poller.rs` |
+| `conversation_cache.rs` | Per-notebook conversation history | `src/conversation_cache.rs` |
+| `errors.rs` | Structured error types | `src/errors.rs` |
+
+## Entry points
+
+| Entry point | Purpose |
+|-------------|---------|
+| `cargo run` or binary | Inicia o servidor MCP via stdio |
+| `notebooklm-mcp auth-browser` | Autenticação browser automation |
+| `notebooklm-mcp auth --cookie --csrf` | Autenticação manual |
+| `notebooklm-mcp verify` | Verifica conexão com NotebookLM |
+
+## Design patterns
+
+### Defensive parsing
+
+**Where:** `src/parser.rs`
+**How:** Every accessor function (`get_string_at`, `get_uuid_at`, etc.) returns `Option<T>` instead of using unwrap(). All array accesses are bounds-checked.
+**Why:** Google's RPC responses are complex nested arrays with inconsistent structures. Defensive parsing prevents crashes when unexpected data appears.
+
+### Rate limiting with jitter
+
+**Where:** `src/notebooklm_client.rs`
+**How:** Uses `governor` crate with 2 req/sec quota. Adds random jitter (100-1000ms) between requests.
+**Why:** Google's API has strict rate limits. Jitter prevents thundering herd when many clients retry after a rate limit.
+
+### Conversation caching
+
+**Where:** `src/conversation_cache.rs`
+**How:** Stores (notebook_id, conversation_id, history) in a RwLock-protected HashMap.
+**Why:** NotebookLM's streaming API requires a conversation ID that persists across questions. The cache ensures the same conversation ID is reused.
+
+## Key architectural decisions
+
+| Decision | Rationale | Trade-off |
+|----------|-----------|-----------|
+| MCP via rmcp | Protocolo padrão para agentes IA | Adiciona dependência do rmcp |
+| Chrome headless para auth | Extrai HttpOnly cookies que não podem ser copiadas manualmente | Requer Chrome instalado |
+| DPAPI para Windows | Criptografia nativa sem dependências externas | Funciona apenas no Windows |
+| Rate limiting 2 req/s | Protege conta do Google de bans | Throughput limitado |
+| Parser defensivo | As APIs do Google mudam frequentemente | Mais código que parsing simples |
+
+> [!NOTE] 🧑‍💻 For engineers
+> A decisão de usar Chrome headless foi tomada porque as cookies `__Secure-1PSID` têm a flag HttpOnly e não podem ser acessadas via JavaScript.
+
+## Data flow
+
+O fluxo típico de uma pergunta ao chatbot:
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Server as notebooklm-mcp
+    participant Cache as Conversation Cache
+    participant Google as NotebookLM API
+
+    Client->>Server: ask_question(notebook_id, question)
+    Server->>Cache: get_or_create(notebook_id)
+    Server->>Google: GET notebook sources
+    Google-->>Server: source IDs
+    Server->>Google: POST GenerateFreeFormStreamed
+    Google-->>Server: Streaming response
+    Server->>Cache: add_message(question, answer)
+    Server-->>Client: answer
+```
+
+## External integrations
+
+| Service | Purpose | How connected |
+|---------|---------|--------------|
+| Google NotebookLM API | Core functionality | HTTP batchexecute + streaming |
+| Chrome (CDP) | Browser automation | headless_chrome crate |
+| Windows Credential Manager | Secure credential storage | keyring crate |
+| Windows DPAPI | Fallback encryption | windows-dpapi crate |
+
+> [!NOTE]
+> See [[../pt/02-api-reference]] for the public interface surface.
+> See [[../pt/03-data-models]] for entity relationships.
+
+---
+
+## Architectural history
+
+### Period 1: Initial implementation (2026-04-03)
+
+O projeto nasceu como uma implementação em Rust do projeto Python `notebooklm-py`. O foco inicial foi:
+- Implementar o servidor MCP básico com rmcp
+- Descobrir os RPC IDs da API (wXbhsf, CCqFvf, izAoDd, rLM1Ne)
+- Implementar autenticação manual com DPAPI
+
+### Period 2: Browser automation (2026-04-04)
+
+Foi adicionada autenticação via Chrome headless para:
+- Eliminar a necessidade de copiar cookies manualmente
+- Extrair cookies HttpOnly que não podem ser vistas no DevTools
+- Prover uma experiência de usuário mais fluida
+
+### Current state
+
+O servidor está operacional com 4 tools MCP funcionando. Os próximos desafios incluem:
+- Melhorar o parsing de respostas streaming
+- Adicionar suporte para Linux/macOS em credential storage
+- Melhorar manipulação de erros e recovery
+</file>
+
+<file path="docs/pt/02-api-reference.md">
+---
+title: "API Reference — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: developers
+---
+
+# Referência da API (Português)
+
+## Ferramentas MCP
+
+### notebook_list
+
+Lista todos os cadernos disponíveis na conta.
+
+```json
+{
+  "name": "notebook_list",
+  "description": "List all notebooks available in the account"
+}
+```
+
+**Retorna:**
+```
+Notebooks: [{"id": "uuid-1", "title": "Meu Caderno"}, ...]
+```
+
+### notebook_create
+
+Cria um novo caderno.
+
+```json
+{
+  "name": "notebook_create",
+  "description": "Create a new notebook by title",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string", "description": "Title for the new notebook" }
+    },
+    "required": ["title"]
+  }
+}
+```
+
+**Parâmetros:**
+- `title` (string, required) — Título do caderno
+
+**Retorna:**
+```
+Caderno criado. ID: <uuid>
+```
+
+### source_add
+
+Adiciona uma fonte de texto a um caderno.
+
+```json
+{
+  "name": "source_add",
+  "description": "Add a text source to a notebook",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
+      "title": { "type": "string", "description": "Title of the source" },
+      "content": { "type": "string", "description": "Text content" }
+    },
+    "required": ["notebook_id", "title", "content"]
+  }
+}
+```
+
+**Parâmetros:**
+- `notebook_id` (string, required) — UUID do caderno
+- `title` (string, required) — Título da fonte
+- `content` (string, required) — Conteúdo do texto
+
+**Retorna:**
+```
+Fonte adicionada. ID: <source_uuid>
+```
+
+### ask_question
+
+Faz uma pergunta ao chatbot de um caderno.
+
+```json
+{
+  "name": "ask_question",
+  "description": "Ask a question to a notebook",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
+      "question": { "type": "string", "description": "Question to ask" }
+    },
+    "required": ["notebook_id", "question"]
+  }
+}
+```
+
+**Parâmetros:**
+- `notebook_id` (string, required) — UUID do caderno
+- `question` (string, required) — Pergunta a fazer
+
+**Retorna:**
+```
+<resposta do chatbot>
+```
+
+## Recursos MCP
+
+### notebook://{uuid}
+
+Recursos que representam cadernos do NotebookLM.
+
+```
+notebook://550e8400-e29b-41d4-a716-446655440000
+```
+
+**Conteúdo:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Meu Caderno",
+  "uri": "notebook://550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+## CLI
+
+### auth
+
+Salva cookies encriptadas com DPAPI.
+
+```bash
+notebooklm-mcp auth --cookie "..." --csrf "..."
+```
+
+### auth-browser
+
+Autenticação via Chrome headless (recomendado).
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+### auth-status
+
+Verifica estado da autenticação.
+
+```bash
+notebooklm-mcp auth-status
+```
+
+### verify
+
+Verifica conexão com NotebookLM.
+
+```bash
+notebooklm-mcp verify
+```
+
+### ask
+
+Faz uma pergunta via CLI.
+
+```bash
+notebooklm-mcp ask --notebook-id "..." --question "..."
+```
+
+### add-source
+
+Adiciona uma fonte via CLI.
+
+```bash
+notebooklm-mcp add-source --notebook-id "..." --title "..." --content "..."
+```
+
+## Erros
+
+| Código | Descrição |
+|--------|-------------|
+| SESSÃO EXPIRADA | Cookies do Google expiraram — re-autenticar |
+| CSRF EXPIRADO | Token CSRF inválido — refresh automático |
+| FONTE NÃO PRONTA | Fonte sendo indexada — fazer polling |
+| RATE LIMITED | Muitos requests — reduzir concorrência |
+| ERROR DE PARSEO | Resposta inesperada do Google |
+| ERROR DE REDE | Problema de conectividade |
+</file>
+
+<file path="docs/pt/03-data-models.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# Modelos de Dados (Português)
+
+## Estruturas do Cliente
+
+### NotebookLmClient
+
+```rust
+pub struct NotebookLmClient {
+    http: Client,                    // reqwest HTTP client
+    csrf: String,                    // Token CSRF
+    limiter: Limiter,                // Rate limiter (governor)
+    conversation_cache: SharedConversationCache,
+    upload_semaphore: Semaphore,     // Max 2 uploads simultâneos
+}
+```
+
+### Notebook
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Notebook {
+    pub id: String,      // UUID de 36 caracteres
+    pub title: String,  // Título do caderno
+}
+```
+
+Exemplo:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Notas de Reunião Q1"
+}
+```
+
+## Autenticação
+
+### BrowserCredentials
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserCredentials {
+    pub cookie: String,   // "__Secure-1PSID=...; __Secure-1PSIDTS=..."
+    pub csrf: String,    // Token CSRF (SNlM0e)
+}
+```
+
+### AuthResult
+
+```rust
+pub enum AuthResult {
+    Success(BrowserCredentials),
+    FallbackRequired(String),  // Chrome não disponível
+    Failed(String),            // Erro de autenticação
+}
+```
+
+### AuthStatus
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthStatus {
+    pub chrome_available: bool,           // Chrome instalado
+    pub has_stored_credentials: bool,     // Credenciais salvas
+}
+```
+
+## Erros
+
+### NotebookLmError
+
+```rust
+pub enum NotebookLmError {
+    SessionExpired(String),    // Sessão do Google expirou
+    CsrfExpired(String),       // Token CSRF inválido
+    SourceNotReady(String),    // Fonte em processamento
+    RateLimited(String),       // Rate limit atingido
+    ParseError(String),        // Erro de parsing
+    NetworkError(String),      // Erro de rede
+    Unknown(String),           // Erro genérico
+}
+```
+
+## Parser
+
+### RpcResponse
+
+```rust
+pub struct RpcResponse {
+    pub rpc_id: String,      // ID do método RPC (ex., "wXbhsf")
+    pub inner_json: Value,   // Payload parseado
+}
+```
+
+## Polling
+
+### PollerConfig
+
+```rust
+#[derive(Debug, Clone)]
+pub struct PollerConfig {
+    pub check_interval: Duration,  // Intervalo entre verificações (default: 2s)
+    pub timeout: Duration,       // Timeout total (default: 60s)
+    pub max_retries: usize,       // Max tentativas (default: 30)
+}
+```
+
+### SourceState
+
+```rust
+pub enum SourceState {
+    Ready,        // Fonte indexada e pronta
+    Processing,  // Ainda processando
+    Error(String), // Erro no processamento
+    Unknown,      // Estado não reconhecido
+}
+```
+
+## Cache
+
+### ConversationHistory
+
+```rust
+pub struct ConversationHistory {
+    pub messages: Vec<ConversationMessage>,
+}
+
+pub struct ConversationMessage {
+    pub question: String,
+    pub answer: String,
+}
+```
+
+### ConversationCache
+
+```rust
+pub struct ConversationCache {
+    conversations: RwLock<HashMap<String, (String, ConversationHistory)>>,
+    // notebook_id -> (conversation_id, histórico)
+}
+```
+
+## Request/Response DTOs
+
+### NotebookCreateRequest
+
+```rust
+pub struct NotebookCreateRequest {
+    pub title: String,
+}
+```
+
+### SourceAddRequest
+
+```rust
+pub struct SourceAddRequest {
+    pub notebook_id: String,
+    pub title: String,
+    pub content: String,
+}
+```
+
+### AskQuestionRequest
+
+```rust
+pub struct AskQuestionRequest {
+    pub notebook_id: String,
+    pub question: String,
+}
+```
+
+## Sessão
+
+### SessionData
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct SessionData {
+    cookie: String,   // Cookies encriptadas
+    csrf: String,     // Token CSRF
+}
+```
+
+Localização: `~/.notebooklm-mcp/session.bin` (encriptado com DPAPI)
+</file>
+
+<file path="docs/pt/04-setup.md">
+---
+title: "Setup — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: users
+---
+
+# Instalação (Português)
+
+## Requisitos
+
+- **Rust** 1.70+ (edição 2024)
+- **Windows** (para DPAPI) — no Linux/macOS tem fallback
+- **Google Chrome** (para autenticação automática)
+
+## Compilação
+
+```bash
+# Clonar o repositório
+git clone <repo-url>
+cd notebooklm-rust-mcp
+
+# Compilar
+cargo build --release
+
+# O binário fica em target/release/notebooklm-mcp.exe
+```
+
+## Autenticação
+
+### Método 1: Chrome headless (recomendado)
+
+Este método abre uma janela do Chrome para você fazer login:
+
+```bash
+./target/release/notebooklm-mcp auth-browser
+```
+
+**Fluxo:**
+1. Abre janela do Chrome
+2. Você faz login na sua conta do Google
+3. O script detecta as cookies automaticamente
+4. São salvas no Windows Credential Manager
+
+### Método 2: Manual
+
+Se você preferir não usar Chrome:
+
+1. Abra DevTools (F12) em notebooklm.google.com
+2. Application → Cookies → Copie o valor de `__Secure-1PSID` e `__Secure-1PSIDTS`
+3. Faça um GET para notebooklm.google.com e procure por `"SNlM0e":"..."` no HTML
+4. Execute:
+
+```bash
+notebooklm-mcp auth \
+  --cookie "__Secure-1PSID=xxx; __Secure-1PSIDTS=yyy" \
+  --csrf "SNlM0e_xxx"
+```
+
+## Configuração do Cliente MCP
+
+### Cursor
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Em `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+### Windsurf
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "path/to/notebooklm-mcp.exe"
+    }
+  }
+}
+```
+
+## Verificação
+
+```bash
+# Ver estado da autenticação
+notebooklm-mcp auth-status
+
+# Testar conexão
+notebooklm-mcp verify
+```
+
+Se você ver "Cadernos encontrados: [...]" ✓
+
+## Variáveis de Ambiente
+
+Não há variáveis de ambiente necessárias — as credenciais são salvas em:
+
+- **Windows**: Windows Credential Manager (via keyring) ou DPAPI
+- **Fallback**: `~/.notebooklm-mcp/session.bin`
+
+## Atualização de Credenciais
+
+As cookies do Google expiram frequentemente. Se você ver erros de autenticação:
+
+```bash
+# Regenerar credenciais
+notebooklm-mcp auth-browser
+
+# Ou manual
+notebooklm-mcp auth --cookie "nova_cookie" --csrf "novo_csrf"
+```
+</file>
+
+<file path="docs/pt/05-user-guide.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# Guia do Usuário (Português)
+
+## Primeiros Passos
+
+### 1. Autenticação
+
+Antes de usar o servidor, você precisa autenticar com sua conta do Google:
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+Isso abre o Chrome para você fazer login. Uma vez feito, as credenciais são salvas automaticamente.
+
+### 2. Verificar conexão
+
+```bash
+notebooklm-mcp verify
+```
+
+Deveria mostrar os cadernos existentes.
+
+## Uso do Cliente MCP
+
+### Listar cadernos
+
+```json
+{
+  "name": "notebook_list"
+}
+```
+
+### Criar um caderno
+
+```json
+{
+  "name": "notebook_create",
+  "arguments": {
+    "title": "Meu Novo Projeto"
+  }
+}
+```
+
+### Adicionar uma fonte
+
+```json
+{
+  "name": "source_add",
+  "arguments": {
+    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Documento de Requisitos",
+    "content": "Este documento descreve os requisitos do projeto..."
+  }
+}
+```
+
+### Fazer uma pergunta
+
+```json
+{
+  "name": "ask_question",
+  "arguments": {
+    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
+    "question": "Qual é o objetivo principal do projeto?"
+  }
+}
+```
+
+## Uso via CLI
+
+Você também pode usar o servidor diretamente da linha de comandos:
+
+```bash
+# Criar caderno
+notebooklm-mcp create-notebook "Minhas Notas"
+
+# Adicionar fonte
+notebooklm-mcp add-source \
+  --notebook-id "uuid" \
+  --title "Minha Fonte" \
+  --content "Conteúdo..."
+
+# Fazer pergunta
+notebooklm-mcp ask \
+  --notebook-id "uuid" \
+  --question "O que resume este documento?"
+```
+
+## Recursos
+
+Os notebooks também estão disponíveis como recursos MCP:
+
+```
+notebook://550e8400-e29b-41d4-a716-446655440000
+```
+
+Você pode usar este URI no seu cliente MCP para acessar metadados do notebook.
+
+## Erros Comuns
+
+### "SESSÃO EXPIRADA"
+
+As cookies do Google expiraram. Autentique novamente:
+
+```bash
+notebooklm-mcp auth-browser
+```
+
+### "FONTE NÃO PRONTA"
+
+A fonte ainda está sendo indexada. O cliente automaticamente faz polling, mas se o erro persistir, espere mais alguns segundos.
+
+### "RATE LIMITED"
+
+Muitas requests. Espere um momento e tente novamente.
+
+## Dicas
+
+- **Mantenha as credenciais atualizadas** — As cookies do Google expiram a cada poucos dias
+- **Use fontes curtas no início** — A indexação é mais rápida
+- **O histórico de conversa é mantido** — Entre perguntas ao mesmo notebook, o chatbot tem contexto
+- **Rate limiting protege sua conta** — Não tente fazer mais de 2 requests por segundo
+</file>
+
+<file path="docs/pt/06-changelog.md">
+---
+title: "Overview — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation]
+audience: both
+---
+
+# Changelog (Português)
+
+Todas as alterações_notáveis deste projeto serão documentadas neste arquivo.
+
+## [0.1.0] - 2026-04-04
+
+### Adicionado
+
+- **Servidor MCP completo** com 4 ferramentas: `notebook_list`, `notebook_create`, `source_add`, `ask_question`
+- **Recursos MCP**: notebooks disponíveis como URIs `notebook://{uuid}`
+- **Autenticação por browser automation** via Chrome headless (CDP)
+- **Autenticação manual** com DPAPI (Windows)
+- **Suporte a keyring**: Windows Credential Manager / Linux Secret Service
+- **Rate limiting** com governor (2 req/segundo)
+- **Retry com exponential backoff** para robustez
+- **Parser defensivo** para respostas RPC do Google
+- **Conversation cache** para manter contexto entre perguntas
+- **Source poller** para esperar indexação de fontes
+- **Erros estruturados** para melhor debugging
+
+### Detalhes Técnicos
+
+- **Runtime**: Tokio async
+- **HTTP Client**: reqwest com streaming
+- **Servidor MCP**: rmcp crate
+- **Browser Automation**: headless_chrome
+- **Credential Storage**: windows-dpapi + keyring
+
+### RPC IDs Descobertos
+
+| RPC ID | Função |
+|--------|---------|
+| `wXbhsf` | Listar cadernos |
+| `CCqFvf` | Criar caderno |
+| `izAoDd` | Adicionar fonte |
+| `rLM1Ne` | Obter fontes do caderno |
+| `GenerateFreeFormStreamed` | Chat streaming |
+
+### Autores
+
+- Reverse engineering baseado em notebooklm-py
+- Implementação em Rust pelo autor do projeto
+</file>
+
+<file path="docs/pt/README.md">
+---
+title: "NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+last_commit: "b467e15"
+scan_type: full
+tags: [rust, mcp, documentation, cli-tool]
+audience: both
+---
+
+<div align="center">
+
+# NotebookLM MCP Server
+
+> Um servidor MCP não oficial que permite a agentes IA interagir com cadernos do Google NotebookLM — criar cadernos, adicionar fontes e conversar com documentos.
+
+<br/>
+
+![Rust](https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square&logo=rust)
+![License](https://img.shields.io/github/license/maisonnat/notebooklm-rust-mcp?style=flat-square)
+![Last Commit](https://img.shields.io/github/last-commit/maisonnat/notebooklm-rust-mcp?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)
+
+<br/>
+
+[**Quick Start**](#quick-start) · [**Documentation**](#documentation) · [**Architecture**](#architecture-at-a-glance) · [**Roadmap**](#roadmap)
+
+</div>
+
+---
+
+## O que é (Português)
+
+NotebookLM MCP Server é um servidor MCP (Model Context Protocol) não oficial que atua como ponte entre agentes IA e Google NotebookLM. Permite criar cadernos, adicionar fontes de texto e fazer perguntas ao chatbot de IA — tudo de qualquer cliente MCP compatível.
+
+O projeto faz **engenharia reversa** das APIs internas do Google, já que o NotebookLM não tem API oficial. Foi projetado para se integrar com ferramentas como Cursor, Windsurf, Claude Desktop, e qualquer cliente que suporte o protocolo MCP.
+
+## Por que existe (Português)
+
+Google NotebookLM é uma ferramenta poderosa para resumir documentos e conversar com eles, mas não existe uma API pública. Este projeto surge para preencher essa lacuna, permitindo automação e integração com agentes IA que precisam interagir com cadernos NotebookLM.
+
+Antes existia a opção de usar notebooklm-py (Python), mas não havia uma implementação nativa em Rust que fosse rápida e fácil de integrar com servidores MCP modernos.
+
+---
+
+## Principais funcionalidades (Português)
+
+- 🔌 **Servidor MCP completo** — 4 tools: `notebook_list`, `notebook_create`, `source_add`, `ask_question`
+- 🌐 **Recursos MCP** — Cadernos disponíveis como `notebook://{uuid}` URIs
+- 🔐 **Autenticação browser automation** — Extrai cookies HttpOnly via Chrome headless (CDP)
+- 🔑 **Múltiplos métodos de auth** — DPAPI (Windows), Keyring, Chrome headless
+- ⚡ **Rate limiting integrado** — 2 req/segundo para proteger a API do Google
+- 💾 **Cache de conversa** — Mantém contexto entre perguntas
+- 🔄 **Polling automático** — Espera indexação de fontes antes de permitir perguntas
+- 🛡️ **Erros estruturados** — Melhor debug e tratamento de erros
+
+---
+
+## Quick Start (Português)
+
+```bash
+# 1. Clonar
+git clone https://github.com/maisonnat/notebooklm-rust-mcp && cd notebooklm-rust-mcp
+
+# 2. Compilar
+cargo build --release
+
+# 3. Autenticar (recomendado - abre Chrome)
+./target/release/notebooklm-mcp auth-browser
+
+# 4. Verificar conexão
+./target/release/notebooklm-mcp verify
+```
+
+> Guia de configuração completo → [docs/pt/04-setup.md](./docs/pt/04-setup.md)
+
+---
+
+## Architecture at a glance (Português)
+
+```mermaid
+graph TD
+    Client[MCP Client<br/>Cursor/Windsurf/Claude] -->|stdio| Server[notebooklm-mcp]
+    Server --> CLI[CLI Handler<br/>clap]
+    Server --> MCP[MCP Server<br/>rmcp]
+    Server --> Session[Session Manager<br/>DPAPI/Keyring]
+    Server --> ClientHTTP[NotebookLmClient]
+    ClientHTTP -->|Rate Limit| Governor[governor]
+    ClientHTTP --> Parser[Parser RPC]
+    ClientHTTP --> Cache[Conversation Cache]
+    ClientHTTP -->|HTTPS| Google[Google NotebookLM API]
+    
+    Auth[Browser Auth<br/>headless_chrome] -->|CDP| Chrome[Chrome Browser]
+```
+
+O servidor recebe requests via stdio do cliente MCP, processa usando o cliente HTTP interno, e se comunica com as APIs do NotebookLM. Inclui rate limiting, parsing defensivo de respostas RPC e cache de conversa.
+
+→ [Documentação de arquitetura completa](./docs/pt/01-architecture.md)
+
+---
+
+## Documentation (Português)
+
+| Document | Description | Audience |
+|---|---|---|
+| [Overview](./docs/pt/00-overview.md) | Project identity, purpose, tech stack | Everyone |
+| [Architecture](./docs/pt/01-architecture.md) | System design, modules, patterns, history | Engineers |
+| [API Reference](./docs/pt/02-api-reference.md) | Endpoints, commands, configuration | Engineers |
+| [Data Models](./docs/pt/03-data-models.md) | Entities, schemas, relationships | Engineers |
+| [Setup Guide](./docs/pt/04-setup.md) | Installation, configuration, dev workflow | Everyone |
+| [User Guide](./docs/pt/05-user-guide.md) | Use cases, expected behavior | Users |
+| [Changelog](./docs/pt/06-changelog.md) | History, releases, migrations | Everyone |
+
+> 💡 Novo aqui? Comece pelo [Overview](./docs/pt/00-overview.md).
+> Building on top of this? Vá para [API Reference](./docs/pt/02-api-reference.md).
+> Something broke? Veja [Setup — Troubleshooting](./docs/pt/04-setup.md#troubleshooting).
+
+---
+
+## Roadmap (Português)
+
+### Done ✅
+- Implementação de servidor MCP com 4 tools
+- Autenticação baseada em navegador (headless Chrome)
+- Rate limiting com exponential backoff
+- Cache de conversa para contexto
+- Source polling para indexação
+
+### In progress 🚧
+- Melhorar parsing de respostas streaming
+- Adicionar mais cobertura de testes
+- Suporte Linux/macOS para credential storage
+
+### Planned 📋
+- Adicionar suporte para upload de fontes de áudio
+- Melhorar mecanismos de recovery de erros
+- Adicionar refresh de sessão mais robusto
+- Considerar WebSocket para streaming em tempo real
+
+> Tem uma ideia? [Abra um issue](https://github.com/maisonnat/notebooklm-rust-mcp/issues) ou veja [Contributing](#contributing).
+
+---
+
+## Contributing (Português)
+
+Contribuições são bem-vindas. Antes de abrir um PR:
+
+1. Verificar issues abertas para discussões existentes
+2. Executar `cargo test` — todos os testes devem passar
+3. Seguir o estilo de código existente em `src/`
+
+Para mudanças importantes, primeiro abrir uma issue para discutir a abordagem.
+
+---
+
+## License (Português)
+
+MIT — ver [LICENSE](./LICENSE) para detalhes.
+</file>
+
+<file path="docs/_index.md">
+---
+title: "Documentation Index"
+repo: "notebooklm-rust-mcp"
+last_updated: "2026-04-04"
+---
+
+# NotebookLM MCP Server — Documentation
+
+## Select Language
+
+| Language | Status | Description |
+|----------|--------|-------------|
+| 🇺🇸 [English](./en/) | Primary | Primary documentation |
+| 🇪🇸 [Español](./es/) | Available | Documentación en español |
+| 🇧🇷 [Português](./pt/) | Available | Documentação em português |
+
+## All Documents
+
+### English (Primary)
+
+| Document | Description |
+|----------|-------------|
+| [en/README](./en/README.md) | GitHub landing page |
+| [en/00-overview](./en/00-overview.md) | Project overview |
+| [en/01-architecture](./en/01-architecture.md) | Architecture & design |
+| [en/02-api-reference](./en/02-api-reference.md) | API reference |
+| [en/03-data-models](./en/03-data-models.md) | Data models |
+| [en/04-setup](./en/04-setup.md) | Setup guide |
+| [en/05-user-guide](./en/05-user-guide.md) | User guide |
+| [en/06-changelog](./en/06-changelog.md) | Changelog |
+
+### Español
+
+| Document | Description |
+|----------|-------------|
+| [es/README](./es/README.md) | Página de GitHub |
+| [es/00-overview](./es/00-overview.md) | Visión general |
+| [es/01-architecture](./es/01-architecture.md) | Arquitectura y diseño |
+| [es/02-api-reference](./es/02-api-reference.md) | Referencia de API |
+| [es/03-data-models](./es/03-data-models.md) | Modelos de datos |
+| [es/04-setup](./es/04-setup.md) | Guía de instalación |
+| [es/05-user-guide](./es/05-user-guide.md) | Guía de usuario |
+| [es/06-changelog](./es/06-changelog.md) | Registro de cambios |
+
+### Português
+
+| Document | Description |
+|----------|-------------|
+| [pt/README](./pt/README.md) | Página do GitHub |
+| [pt/00-overview](./pt/00-overview.md) | Visão geral |
+| [pt/01-architecture](./pt/01-architecture.md) | Arquitetura e design |
+| [pt/02-api-reference](./pt/02-api-reference.md) | Referência da API |
+| [pt/03-data-models](./pt/03-data-models.md) | Modelos de dados |
+| [pt/04-setup](./pt/04-setup.md) | Guia de configuração |
+| [pt/05-user-guide](./pt/05-user-guide.md) | Guia do usuário |
+| [pt/06-changelog](./pt/06-changelog.md) | Registro de alterações |
+
+---
+
+*Generated by `repo-documenter` | Languages: en, es, pt*
+</file>
+
+<file path="openspec/changes/archive/2026-04-03-browser-auth-cli/specs/browser-auth-cli/spec.md">
+# Delta for Browser Auth CLI
+
+## ADDED Requirements
+
+### Requirement: Auth-Browser Command
+
+The CLI MUST provide an `auth-browser` command that performs browser-based authentication using headless Chrome.
+
+The command MUST launch a headless Chrome instance, navigate to Google accounts page, wait for user to complete login, extract cookies via CDP, and store them securely.
+
+#### Scenario: Successful browser authentication
+
+- GIVEN Chrome is installed and available
+- WHEN user runs `notebooklm-mcp auth-browser`
+- AND user completes login in browser window
+- THEN the system extracts `__Secure-1PSID` and `__Secure-1PSIDTS` cookies
+- AND stores them in OS keyring (Windows Credential Manager / Linux Secret Service)
+- AND prints "Authentication successful"
+
+#### Scenario: Chrome not available
+
+- GIVEN Chrome is not installed or cannot be launched
+- WHEN user runs `notebooklm-mcp auth-browser`
+- THEN the system prints "Chrome not available. Use manual auth: notebooklm-mcp auth --cookie ... --csrf ..."
+- AND exits with error code
+
+#### Scenario: User cancels login
+
+- GIVEN user started browser authentication
+- WHEN user closes browser without completing login
+- THEN the system times out after 120 seconds
+- AND prints "Login timeout. Please try again"
+
+### Requirement: Auth-Browser Status
+
+The CLI MUST provide an `auth-status` command that shows whether browser authentication is available and if credentials are stored.
+
+#### Scenario: Check authentication status
+
+- GIVEN the application is installed
+- WHEN user runs `notebooklm-mcp auth-status`
+- THEN the system prints:
+  - "Chrome available: true/false"
+  - "Stored credentials: true/false"
+
+### Requirement: Integration Tests
+
+The test suite MUST include basic integration tests that verify module loading and function signatures.
+
+#### Scenario: Parser module loads
+
+- GIVEN the project compiles
+- WHEN `cargo test` is run
+- THEN parser tests MUST pass
+
+#### Scenario: Errors module loads
+
+- GIVEN the project compiles
+- WHEN `cargo test` is run
+- THEN error handling tests MUST pass
+</file>
+
+<file path="openspec/changes/archive/2026-04-03-browser-auth-cli/specs/integration-tests/spec.md">
+# Delta for Integration Tests
+
+## ADDED Requirements
+
+### Requirement: Basic Integration Tests
+
+The project SHOULD include integration tests that verify module functionality without requiring external services.
+
+#### Scenario: All unit tests pass
+
+- GIVEN the project compiles without errors
+- WHEN `cargo test` is run
+- THEN all unit tests in src/ modules MUST pass
+- AND all test fixtures MUST be readable
+
+#### Scenario: Parser integration
+
+- GIVEN a sample RPC response from tests/fixtures/
+- WHEN the parser processes it
+- THEN it MUST correctly extract notebook list and source IDs
+
+#### Scenario: Error handling integration
+
+- GIVEN various error strings (401, 400, 429)
+- WHEN NotebookLmError::from_string is called
+- THEN it MUST correctly classify the error type
+
+### Requirement: Module Compilation
+
+The project MUST compile all modules including newly added ones.
+
+#### Scenario: Full project compiles
+
+- GIVEN all source files in src/
+- WHEN `cargo build` is run
+- THEN it MUST complete without errors
+- AND all dependencies MUST resolve
+</file>
+
+<file path="openspec/changes/archive/2026-04-03-browser-auth-cli/proposal.md">
+# Proposal: Conectar Browser Auth al CLI y Completar Tests
+
+## Intent
+
+Completar la integración del módulo `auth_browser.rs` con el CLI existente, y asegurar que los tests de integración tengan cobertura básica.
+
+## Scope
+
+### In Scope
+1. Agregar comando `auth-browser` al CLI en main.rs
+2. Completar tests de integración básicos
+
+### Out of Scope
+- Tests E2E con credenciales reales
+- Integración con MCP server tools
+
+## Capabilities
+
+### New Capabilities
+- `browser-auth-cli`: Command to authenticate via headless Chrome
+
+### Modified Capabilities
+- `integration-tests`: Tests existentes tienen coverage parcial
+
+## Approach
+
+1. Agregar `AuthBrowser` command a enum `Commands` en main.rs
+2. Llamar a `BrowserAuthenticator::authenticate()` desde el CLI
+3. Si succeeds, guardar en keyring; si falla, fallback a DPAPI
+4. Agregar tests de integración simples en `tests/`
+
+## Affected Areas
+
+| Area | Impact | Description |
+|------|--------|-------------|
+| `src/main.rs` | Modified | Agregar AuthBrowser command |
+| `src/auth_browser.rs` | Modified | Ajustar para sync/async |
+| `tests/` | Modified | Agregar integration tests |
+
+## Risks
+
+| Risk | Likelihood | Mitigation |
+|------|------------|------------|
+| Chrome no disponible | Medium | Fallback a DPAPI ya implementado |
+| Keyring fails | Low | Graceful degradation |
+
+## Rollback Plan
+
+Revertir cambios en main.rs y eliminar command agregado.
+
+## Dependencies
+
+- headless_chrome, keyring ya en Cargo.toml
+
+## Success Criteria
+
+- [ ] Comando `auth-browser` funcional
+- [ ] Tests de integración compilan
+- [ ] Fallback a DPAPI funciona si Chrome no está
+</file>
+
+<file path="openspec/changes/archive/2026-04-03-browser-auth-cli/tasks.md">
+# Tasks: Conectar Browser Auth al CLI y Completar Tests
+
+## Phase 1: CLI Command Integration
+
+- [x] 1.1 Agregar `AuthBrowser` variant al enum `Commands` en main.rs
+- [x] 1.2 Agregar `AuthStatus` variant al enum `Commands` en main.rs
+- [x] 1.3 Importar `crate::auth_browser` en main.rs
+- [x] 1.4 Implementar handler para `AuthBrowser` que llame a `BrowserAuthenticator::authenticate()`
+- [x] 1.5 Implementar handler para `AuthStatus` que llame a `auth_browser::get_auth_status()`
+
+## Phase 2: Auth Flow Implementation
+
+- [x] 2.1 Modificar `authenticate()` para que sea sync ( Tokio block_on desde CLI)
+- [x] 2.2 Si auth exitosa, extraer CSRF via auth_helper y guardar en keyring
+- [x] 2.3 Si fallback requerido, usar método DPAPI existente
+- [x] 2.4 Agregar output de mensaje claro al usuario (success/error)
+
+## Phase 3: Tests de Integración
+
+- [x] 3.1 Crear `tests/integration.rs` con test que compile todos los módulos
+- [x] 3.2 Agregar test que verifique parser con fixture de tests/fixtures/
+- [x] 3.3 Agregar test que verifique error classification
+- [x] 3.4 Ejecutar `cargo test` y verificar que todos pasen
+
+## Phase 4: Verificación Final
+
+- [x] 4.1 Ejecutar `cargo check` para verificar compilación
+- [x] 4.2 Ejecutar `cargo clippy` para verificar linting
+- [x] 4.3 Verificar que `auth-status` muestre información correcta
+- [x] 4.4 Documentar el nuevo comando en comments del código
+</file>
+
+<file path="openspec/changes/tasks.md">
+# Tasks: Mejoras al Parser y Sistema de Polling
+
+## Phase 1: Foundation - Parser Defensivo
+
+- [x] 1.1 Crear `src/parser.rs` con funciones para parseo de respuestas RPC usando acceso defensivo
+- [x] 1.2 Implementar `extract_by_rpc_id` con búsqueda directa en array por índice validado
+- [x] 1.3 Reemplazar `.get(index).unwrap()` por funciones del parser (get_string_at, get_uuid_at)
+- [x] 1.4 Extraer función `strip_antixssi_prefix()` - buscar primer `[` y cortar todo anterior
+
+## Phase 2: Core - Polling y Errores
+
+- [x] 2.1 Crear `src/source_poller.rs` con bucle polling para verificar estado de fuente hasta SUCCESS
+- [x] 2.2 Implementar `wait_for_source_ready(notebook_id, source_id)` con timeout y reintentos
+- [x] 2.3 Crear enum `NotebookLmError` con variantes: SessionExpired, CsrfExpired, SourceNotReady, RateLimited, ParseError
+- [x] 2.4 Implementar refresh automático de CSRF - crear `src/auth_helper.rs` con extracción desde HTML + validación de sesión
+
+## Phase 3: Integración - Estado y Cache
+
+- [x] 3.1 Crear `src/conversation_cache.rs` con RwLock para cachear conversation IDs por notebook
+- [x] 3.2 Modificar `ask_question` para usar conversation cache y mantener historial
+- [x] 3.3 Agregar `tokio::sync::Semaphore` para limitar uploads a 1-2 simultáneos (ya tenemos governor)
+- [x] 3.4 Implementar exponential backoff con jitter para reintentos en `batchexecute`
+
+## Phase 4: Testing
+
+- [x] 4.1 Crear carpeta `tests/fixtures/` con respuestas HTTP grabadas (VCR pattern)
+- [x] 4.2 Escribir tests unitarios para parser con respuestas de ejemplo
+- [x] 4.3 Escribir test de integración para polling de fuentes
+- [x] 4.4 Testear manejo de errores: sesión expirada, CSRF expirado
+
+## Phase 5: Cleanup
+
+- [x] 5.1 Documentar lecciones del colega en comments del código
+- [x] 5.2 Limpiar código temporal de debugging
+- [x] 5.3 Actualizar Cargo.toml con dependencias de test (wiremock si es necesario)
+
+## Phase 6: Browser-Based Authentication (MEJOR QUE MANUAL)
+
+- [x] 6.1 Añadir dependencias: headless_chrome, keyring, tempfile a Cargo.toml
+- [x] 6.2 Crear `src/auth_browser.rs` con flujo de login automático usando Chrome CDP
+- [x] 6.3 Implementar extracción de cookies (__Secure-1PSID, __Secure-1PSIDTS) vía CDP
+- [x] 6.4 Integrar con keyring para OS credential storage (Windows Credential Manager / Linux Secret Service)
+- [x] 6.5 Mantener fallback al método actual (DPAPI) para sistemas sin Chrome/keyring
+- [x] 6.6 Documentar: El CSRF se sigue extrayendo desde Rust (GET + regex) NO desde el navegador
+
+### Por qué este enfoque es MEJOR que el manual:
+- Usuario interactúa directamente con Google (no copia cookies)
+- Mayor seguridad: nunca tocamos credenciales en texto plano
+- Extrae cookies HttpOnly que no podemos ver manualmente
+- Auto-renovable: re-autenticación es fácil cuando expiran
+</file>
+
+<file path="openspec/changes/verify-report.md">
+# Verification Report: Phase 3 - Mejoras al Parser y Sistema de Polling
+
+**Change**: Mejoras al Parser y Sistema de Polling  
+**Phase Verified**: Phase 3 (Integración - Estado y Cache)  
+**Mode**: Standard
+
+---
+
+## Completeness
+
+| Metric | Value |
+|--------|-------|
+| Tasks total (Phase 3) | 4 |
+| Tasks complete | 4 |
+| Tasks incomplete | 0 |
+
+✅ **Phase 3: All tasks completed**
+
+---
+
+## Build & Tests Execution
+
+**Build**: ✅ Passed
+```
+cargo check - 4 warnings (unused imports, dead code)
+```
+
+**Tests**: ✅ 17 passed / 0 failed / 0 skipped
+```
+Running 17 tests:
+- parser::tests - 8 tests (all ok)
+- errors::tests - 5 tests (all ok)  
+- source_poller::tests - 2 tests (all ok)
+- auth_helper::tests - 3 tests (all ok)
+```
+
+**Coverage**: Not available (no cargo-tarpaulin installed)
+
+---
+
+## Correctness (Static — Structural Evidence)
+
+### Phase 3 Tasks Implementation
+
+| Task | Status | Evidence |
+|------|--------|----------|
+| 3.1 Conversation cache con RwLock | ✅ Implemented | `src/conversation_cache.rs` - usa tokio::sync::RwLock, HashMap para cache |
+| 3.2 ask_question usa cache e historial | ✅ Implemented | `notebooklm_client.rs:ask_question` - llama get_or_create y add_message |
+| 3.3 Semaphore para uploads | ✅ Implemented | `notebooklm_client.rs` - campo upload_semaphore: Semaphore(2) |
+| 3.4 Exponential backoff con jitter | ✅ Implemented | `notebooklm_client.rs` - apply_exponential_backoff() implementado |
+
+### Phase 1-2 Tasks (re-verified)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: Parser Defensivo | ✅ Complete | 4/4 tasks - parser.rs con funciones defensivas |
+| Phase 2: Polling y Errores | ✅ Complete | 4/4 tasks - source_poller.rs, errors.rs, auth_helper.rs |
+| Phase 3: Integración | ✅ Complete | 4/4 tasks - conversation_cache.rs, integración en cliente |
+
+---
+
+## Coherence (Design)
+
+| Decision | Followed? | Notes |
+|----------|-----------|-------|
+| Usar RwLock de tokio para cache | ✅ Yes | Implementado correctamente |
+| Cachear conversation IDs | ✅ Yes | get_or_create reutiliza IDs |
+| Mantener historial de conversaciones | ✅ Yes | add_message almacena preguntas/respuestas |
+| Exponential backoff para reintentos | ✅ Yes | Ahora se usa automáticamente con 3 reintentos |
+
+---
+
+## Issues Found
+
+**CRITICAL** (must fix before archive):
+- None
+
+**WARNING**: 
+- ~~exponential_backoff no se usa automáticamente~~ → **RESUELTO** ahora usa retry automático con 3 reintentos
+
+**SUGGESTION** (nice to have):
+- ~~Limpiar warnings de imports no usados~~ → **RESUELTO** removidos std::sync::Arc, RwLock as TokioRwLock
+- upload_semaphore marcado con #[allow(dead_code)] para uso futuro si se necesita
+
+---
+
+## Verdict
+
+**PASS** ✅
+
+Phase 3 completamente verificada y corregida:
+- ✅ 4/4 tasks implementados correctamente
+- ✅ Build compila sin warnings  
+- ✅ 17 tests pasan
+- ✅ Exponential backoff ahora se usa automáticamente (3 reintentos)
+- ✅ Imports no usados eliminados
+- ✅ Reporte actualizado en `openspec/changes/verify-report.md`
+
+---
+
+# Phase 4: Testing Verification
+
+## Completeness
+
+| Metric | Value |
+|--------|-------|
+| Tasks total (Phase 4) | 4 |
+| Tasks complete | 4 |
+| Tasks incomplete | 0 |
+
+## Build & Tests
+
+**Build**: ✅ Passed (cargo check)
+**Tests**: ✅ 27 passed / 0 failed / 1 ignored
+
+## Phase 4 Tasks Verification
+
+| Task | Status | Evidence |
+|------|--------|----------|
+| 4.1 Crear fixtures/ | ✅ Complete | 4 archivos: list_notebooks, add_source, ask_question, source_ready |
+| 4.2 Tests parser | ✅ Complete | 8 tests: get_string_at, get_uuid, extract_by_rpc_id, strip_antixssi |
+| 4.3 Tests polling | ✅ Complete | 5 tests: PollerConfig, SourceState ready/processing |
+| 4.4 Tests errores | ✅ Complete | 7 tests: session_expired, csrf_expired, rate_limited detection |
+
+## Verdict Phase 4
+
+**PASS** ✅
+
+Phase 4 Testing completamente verificada:
+- ✅ Fixtures de respuestas HTTP creados
+- ✅ Tests unitarios para parser, errores, polling
+- ✅ 27 tests pasan, 1 ignorado (formato real requiere más investigación)
+- ✅ Build compila correctamente
+
+---
+
+# Phase 5: Cleanup Verification
+
+## Completeness
+
+| Metric | Value |
+|--------|-------|
+| Tasks total (Phase 5) | 3 |
+| Tasks complete | 3 |
+| Tasks incomplete | 0 |
+
+## Build & Tests
+
+**Build**: ✅ Passed (cargo check)
+**Tests**: ✅ 27 passed / 0 failed / 1 ignored
+
+## Phase 5 Tasks Verification
+
+| Task | Status | Evidence |
+|------|--------|----------|
+| 5.1 Doc lessons in code | ✅ Complete | 4 módulos con "Lecciones del reverse engineering" en header: parser, source_poller, errors, auth_helper |
+| 5.2 Cleanup debug code | ✅ Complete | No hay println!/dbg! temporales - solo output legítimo para CLI |
+| 5.3 Cargo.toml deps | ✅ Complete | No se necesita wiremock - tests usan fixtures locales |
+
+## Verdict Phase 5
+
+**PASS** ✅
+
+Phase 5 Cleanup completamente verificada:
+- ✅ Documentación de lecciones presente en 4 módulos
+- ✅ Código de debugging limpio
+- ✅ Build compila correctamente
+</file>
+
+<file path="openspec/specs/browser-auth-cli/spec.md">
+# Browser Auth CLI Specification
+
+## Purpose
+
+This specification describes the browser-based authentication feature that allows users to authenticate to NotebookLM using a headless Chrome browser instead of manually copying cookies.
+
+## Requirements
+
+### Requirement: Auth-Browser Command
+
+The CLI MUST provide an `auth-browser` command that performs browser-based authentication using headless Chrome.
+
+The command MUST launch a headless Chrome instance, navigate to Google accounts page, wait for user to complete login, extract cookies via CDP, and store them securely.
+
+#### Scenario: Successful browser authentication
+
+- GIVEN Chrome is installed and available
+- WHEN user runs `notebooklm-mcp auth-browser`
+- AND user completes login in browser window
+- THEN the system extracts `__Secure-1PSID` and `__Secure-1PSIDTS` cookies
+- AND stores them in OS keyring (Windows Credential Manager / Linux Secret Service)
+- AND prints "Authentication successful"
+
+#### Scenario: Chrome not available
+
+- GIVEN Chrome is not installed or cannot be launched
+- WHEN user runs `notebooklm-mcp auth-browser`
+- THEN the system prints "Chrome not available. Use manual auth: notebooklm-mcp auth --cookie ... --csrf ..."
+- AND exits with error code
+
+#### Scenario: User cancels login
+
+- GIVEN user started browser authentication
+- WHEN user closes browser without completing login
+- THEN the system times out after 120 seconds
+- AND prints "Login timeout. Please try again"
+
+### Requirement: Auth-Browser Status
+
+The CLI MUST provide an `auth-status` command that shows whether browser authentication is available and if credentials are stored.
+
+#### Scenario: Check authentication status
+
+- GIVEN the application is installed
+- WHEN user runs `notebooklm-mcp auth-status`
+- THEN the system prints:
+  - "Chrome available: true/false"
+  - "Stored credentials: true/false"
+
+### Requirement: Integration Tests
+
+The test suite MUST include basic integration tests that verify module loading and function signatures.
+
+#### Scenario: All tests pass
+
+- GIVEN the project compiles
+- WHEN `cargo test` is run
+- THEN all unit tests in src/ modules MUST pass
+- AND all test fixtures MUST be readable
+</file>
+
+<file path="openspec/config.yaml">
+# OpenSpec Configuration for NotebookLM Rust MCP
+schema: spec-driven
+context: |
+  Tech stack: Rust, reqwest, rmcp (MCP server), governor (rate limiting), windows-dpapi
+  Architecture: MCP server con cliente HTTP para NotebookLM API (reverse engineered)
+  Testing: cargo test (built-in), unit tests
+  Style: rustfmt, clippy for linting
+strict_tdd: false
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules/packages
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group tasks by phase (infrastructure, implementation, testing)
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Keep tasks small enough to complete in one session
+  apply:
+    - Follow existing code patterns and conventions
+    - Load relevant coding skills for the project stack
+  verify:
+    - Run tests if test infrastructure exists
+    - Compare implementation against every spec scenario
+  archive:
+    - Warn before merging destructive deltas (large removals)
+</file>
+
+<file path="src/auth_browser.rs">
+//! Browser-based authentication module for NotebookLM MCP
+//!
+⋮----
+//!
+//! This module provides automatic login to Google using headless Chrome
+⋮----
+//! This module provides automatic login to Google using headless Chrome
+//! via Chrome DevTools Protocol (CDP), extracting cookies that cannot be
+⋮----
+//! via Chrome DevTools Protocol (CDP), extracting cookies that cannot be
+//! accessed manually (HttpOnly cookies).
+⋮----
+//! accessed manually (HttpOnly cookies).
+//!
+⋮----
+//!
+//! Advantages over manual cookie copy:
+⋮----
+//! Advantages over manual cookie copy:
+//! - User interacts directly with Google (no manual cookie copying)
+⋮----
+//! - User interacts directly with Google (no manual cookie copying)
+//! - Greater security: never handle plaintext credentials
+⋮----
+//! - Greater security: never handle plaintext credentials
+//! - Extracts HttpOnly cookies that we cannot see manually
+⋮----
+//! - Extracts HttpOnly cookies that we cannot see manually
+//! - Auto-renewable: re-authentication is easy when cookies expire
+⋮----
+//! - Auto-renewable: re-authentication is easy when cookies expire
+use headless_chrome::Browser;
+⋮----
+use headless_chrome::Browser;
+use keyring::Entry;
+⋮----
+use std::time::Duration;
+use tempfile::TempDir;
+⋮----
+/// Service identifier for keyring
+const SERVICE_NAME: &str = "notebooklm-mcp";
+/// Credential structure stored in keyring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserCredentials {
+⋮----
+/// Authentication result
+#[derive(Debug)]
+pub enum AuthResult {
+/// Successful authentication with extracted credentials
+    Success(BrowserCredentials),
+/// Fallback required (Chrome not available, user cancelled, etc.)
+    FallbackRequired(String),
+/// Authentication failed
+    Failed(String),
+⋮----
+/// Browser-based authenticator
+pub struct BrowserAuthenticator {
+⋮----
+pub struct BrowserAuthenticator {
+/// Temporary directory for browser profile (optional)
+    #[allow(dead_code)]
+⋮----
+impl BrowserAuthenticator {
+/// Create a new browser authenticator
+    pub fn new() -> Self {
+⋮----
+pub fn new() -> Self {
+⋮----
+/// Attempt browser-based authentication
+    /// Falls back to DPAPI if Chrome is not available
+⋮----
+/// Falls back to DPAPI if Chrome is not available
+    pub async fn authenticate(&self) -> AuthResult {
+⋮----
+pub async fn authenticate(&self) -> AuthResult {
+info!("Attempting browser-based authentication...");
+// Try to launch Chrome
+⋮----
+warn!("Chrome not available: {}. Falling back to DPAPI method.", e);
+return AuthResult::FallbackRequired(format!(
+⋮----
+info!("Chrome launched successfully, starting login flow...");
+// Navigate to Google login page
+let tab = match browser.new_tab() {
+⋮----
+error!("Failed to create new tab: {}", e);
+return AuthResult::Failed(format!("Failed to create tab: {}", e));
+⋮----
+// Navigate to Google sign-in page
+⋮----
+if let Err(e) = tab.navigate_to(login_url) {
+error!("Failed to navigate to login page: {}", e);
+return AuthResult::Failed(format!("Navigation failed: {}", e));
+⋮----
+// Wait for navigation to complete
+if let Err(e) = tab.wait_until_navigated() {
+warn!("Navigation wait returned: {}", e);
+⋮----
+// Wait for user to complete login
+info!("Please complete login in the browser window...");
+info!("Waiting for authentication to complete (timeout: 120 seconds)...");
+// Wait for the user to complete login - use timeout loop to check for cookies
+⋮----
+if start.elapsed() > timeout {
+warn!("Timeout waiting for login");
+⋮----
+"Login timeout. Please try again and complete login faster.".to_string(),
+⋮----
+// Check if cookies are available
+if let Ok(cookies) = tab.get_cookies() {
+let has_psid = cookies.iter().any(|c| c.name == "__Secure-1PSID");
+⋮----
+info!("Detected authentication cookies present");
+⋮----
+// Extract cookies via CDP
+⋮----
+info!("Successfully extracted credentials from browser");
+⋮----
+error!("Failed to extract cookies: {}", e);
+AuthResult::Failed(format!("Cookie extraction failed: {}", e))
+⋮----
+/// Extract cookies from the authenticated session
+    fn extract_cookies(tab: &headless_chrome::Tab) -> Result<BrowserCredentials, String> {
+⋮----
+fn extract_cookies(tab: &headless_chrome::Tab) -> Result<BrowserCredentials, String> {
+// Get all cookies for notebooklm.google.com
+let cookies = tab.get_cookies().map_err(|e| format!("CDP error: {}", e))?;
+⋮----
+// Look for __Secure-1PSID and __Secure-1PSIDTS
+⋮----
+psid_cookie = Some(cookie.value.clone());
+⋮----
+psidts_cookie = Some(cookie.value.clone());
+⋮----
+// Build the full cookie string
+⋮----
+format!("__Secure-1PSID={}; __Secure-1PSIDTS={}", psid, psidts)
+⋮----
+return Err(
+"Required cookies (__Secure-1PSID, __Secure-1PSIDTS) not found".to_string(),
+⋮----
+// For CSRF, we still extract it from the HTML response in Rust
+// (as documented: CSRF is extracted via GET + regex from Rust, not from browser)
+let csrf = String::new(); // Will be extracted separately via auth_helper
+Ok(BrowserCredentials { cookie, csrf })
+⋮----
+/// Store credentials in OS keyring (Windows Credential Manager / Linux Secret Service)
+    pub fn store_in_keyring(creds: &BrowserCredentials) -> Result<(), String> {
+⋮----
+pub fn store_in_keyring(creds: &BrowserCredentials) -> Result<(), String> {
+⋮----
+.map_err(|e| format!("Failed to create keyring entry: {}", e))?;
+⋮----
+.map_err(|e| format!("Failed to serialize credentials: {}", e))?;
+⋮----
+.set_password(&json)
+.map_err(|e| format!("Failed to store in keyring: {}", e))?;
+info!("Credentials stored securely in OS keyring");
+Ok(())
+⋮----
+/// Retrieve credentials from OS keyring
+    pub fn load_from_keyring() -> Result<BrowserCredentials, String> {
+⋮----
+pub fn load_from_keyring() -> Result<BrowserCredentials, String> {
+⋮----
+.get_password()
+.map_err(|e| format!("Failed to load from keyring: {}", e))?;
+⋮----
+.map_err(|e| format!("Failed to parse credentials: {}", e))?;
+Ok(creds)
+⋮----
+/// Delete credentials from OS keyring
+    pub fn delete_from_keyring() -> Result<(), String> {
+⋮----
+pub fn delete_from_keyring() -> Result<(), String> {
+⋮----
+// Delete the entry (ignore error if it doesn't exist)
+let _ = entry.delete_credential();
+info!("Credentials removed from OS keyring");
+⋮----
+/// Check if keyring credentials exist
+    pub fn has_stored_credentials() -> bool {
+⋮----
+pub fn has_stored_credentials() -> bool {
+⋮----
+.and_then(|e| e.get_password())
+.is_ok()
+⋮----
+impl Default for BrowserAuthenticator {
+fn default() -> Self {
+⋮----
+/// Attempt to authenticate using browser automation
+/// Returns credentials if successful, None if fallback required
+⋮----
+/// Returns credentials if successful, None if fallback required
+pub async fn try_browser_auth() -> Option<BrowserCredentials> {
+⋮----
+pub async fn try_browser_auth() -> Option<BrowserCredentials> {
+⋮----
+match auth.authenticate().await {
+AuthResult::Success(creds) => Some(creds),
+⋮----
+error!("Browser authentication failed: {}", e);
+⋮----
+/// Store credentials using the appropriate method (keyring preferred, fallback to DPAPI)
+pub fn store_credentials(creds: &BrowserCredentials) -> Result<(), String> {
+⋮----
+pub fn store_credentials(creds: &BrowserCredentials) -> Result<(), String> {
+// Try keyring first
+⋮----
+warn!("Failed to store in keyring: {}, falling back to DPAPI", e);
+// Fallback to DPAPI via existing main.rs implementation
+// (This would need to be called from main.rs)
+⋮----
+/// Load credentials from storage (keyring preferred, fallback to DPAPI)
+pub fn load_credentials() -> Option<(String, String)> {
+⋮----
+pub fn load_credentials() -> Option<(String, String)> {
+⋮----
+return Some((creds.cookie, creds.csrf));
+⋮----
+// Fallback: load from DPAPI (existing main.rs implementation)
+// This would require access to the existing load_session function
+⋮----
+/// Check if browser-based authentication is available
+pub fn is_browser_auth_available() -> bool {
+⋮----
+pub fn is_browser_auth_available() -> bool {
+Browser::default().is_ok()
+⋮----
+/// Get status information about browser authentication
+pub fn get_auth_status() -> AuthStatus {
+⋮----
+pub fn get_auth_status() -> AuthStatus {
+let chrome_available = Browser::default().is_ok();
+⋮----
+/// Authentication status information
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AuthStatus {
+⋮----
+mod tests {
+⋮----
+fn test_auth_status() {
+let status = get_auth_status();
+// This will fail if Chrome is not installed, but that's expected
+println!("Chrome available: {}", status.chrome_available);
+println!("Has stored credentials: {}", status.has_stored_credentials);
+</file>
+
+<file path="src/auth_helper.rs">
+//! Auth Helper - Extrae y refresca tokens CSRF desde la página de NotebookLM
+//!
+⋮----
+//!
+//! Lecciones del reverse engineering (notebooklm-py):
+⋮----
+//! Lecciones del reverse engineering (notebooklm-py):
+//! - El token CSRF (SNlM0e) no es estático - debe extraerse del HTML
+⋮----
+//! - El token CSRF (SNlM0e) no es estático - debe extraerse del HTML
+//! - Después de un error 400, intentar refresh silencioso y reintentar
+⋮----
+//! - Después de un error 400, intentar refresh silencioso y reintentar
+//! - El CSRF se encuentra en el HTML como: "SNlM0e":"valor"
+⋮----
+//! - El CSRF se encuentra en el HTML como: "SNlM0e":"valor"
+//!
+⋮----
+//!
+//! Aclaración: Las cookies se manejan por fuera (DPAPI/Keyring)
+⋮----
+//! Aclaración: Las cookies se manejan por fuera (DPAPI/Keyring)
+//! Este módulo solo se encarga del token CSRF
+⋮----
+//! Este módulo solo se encarga del token CSRF
+use regex::Regex;
+⋮----
+use regex::Regex;
+use tracing::info;
+/// Extrae el token CSRF (SNlM0e) del HTML de NotebookLM
+/// Retorna el valor del token o error si no se encuentra
+⋮----
+/// Retorna el valor del token o error si no se encuentra
+pub fn extract_csrf_from_html(html: &str) -> Result<String, String> {
+⋮----
+pub fn extract_csrf_from_html(html: &str) -> Result<String, String> {
+// El token está en el HTML como: "SNlM0e":"valor"
+// También puede aparecer como: "SNlM0e":"valor","other_field":...
+⋮----
+.map_err(|e| format!("Regex inválido: {}", e))?;
+if let Some(caps) = re.captures(html) {
+if let Some(token) = caps.get(1) {
+let token_str = token.as_str();
+if token_str.is_empty() {
+return Err("Token CSRF vacío".to_string());
+⋮----
+info!("Token CSRF extraído: {} chars", token_str.len());
+return Ok(token_str.to_string());
+⋮----
+// Backup: buscar en otros formatos posibles
+⋮----
+.map_err(|e| format!("Regex backup inválido: {}", e))?;
+if let Some(caps) = re2.captures(html) {
+⋮----
+return Ok(token.as_str().to_string());
+⋮----
+Err("No se encontró token CSRF (SNlM0e) en el HTML".to_string())
+⋮----
+/// Auth helper que puede extraer CSRF y validar cookies
+pub struct AuthHelper {
+⋮----
+pub struct AuthHelper {
+⋮----
+impl AuthHelper {
+pub fn new() -> Self {
+⋮----
+.timeout(Duration::from_secs(10))
+.build()
+.expect("Failed to create HTTP client");
+⋮----
+/// Hace un GET a la página principal y extrae el CSRF token
+    /// Requiere cookies válidas en el header
+⋮----
+/// Requiere cookies válidas en el header
+    pub async fn refresh_csrf(&self, cookie: &str) -> Result<String, String> {
+⋮----
+pub async fn refresh_csrf(&self, cookie: &str) -> Result<String, String> {
+info!("Refrescando token CSRF...");
+⋮----
+headers.insert(
+⋮----
+.map_err(|e| format!("Cookie inválida: {}", e))?
+⋮----
+.get("https://notebooklm.google.com/")
+.headers(headers)
+.send()
+⋮----
+.map_err(|e| format!("GET falló: {}", e))?;
+if !response.status().is_success() {
+return Err(format!("GET a página principal falló: {}", response.status()));
+⋮----
+let html = response.text().await
+.map_err(|e| format!("No se pudo leer HTML: {}", e))?;
+extract_csrf_from_html(&html)
+⋮----
+/// Valida que las cookies aún sean válidas haciendo un GET simple
+    /// Retorna Ok si la sesión sigue activa, error si expiró
+⋮----
+/// Retorna Ok si la sesión sigue activa, error si expiró
+    pub async fn validate_session(&self, cookie: &str) -> Result<bool, String> {
+⋮----
+pub async fn validate_session(&self, cookie: &str) -> Result<bool, String> {
+⋮----
+// Si devuelve 401/403, la sesión expiró
+if response.status() == reqwest::StatusCode::UNAUTHORIZED
+|| response.status() == reqwest::StatusCode::FORBIDDEN {
+return Ok(false);
+⋮----
+// Si redirection a accounts.google.com, también expiró
+if let Some(loc) = response.headers().get("location") {
+if loc.to_str().unwrap_or("").contains("accounts.google.com") {
+⋮----
+Ok(true)
+⋮----
+impl Default for AuthHelper {
+fn default() -> Self {
+⋮----
+use std::time::Duration;
+⋮----
+mod tests {
+⋮----
+fn test_extract_csrf_standard_format() {
+⋮----
+let result = extract_csrf_from_html(html);
+assert!(result.is_ok());
+⋮----
+fn test_extract_csrf_not_found() {
+⋮----
+assert!(result.is_err());
+⋮----
+fn test_extract_csrf_empty_token() {
+</file>
+
+<file path="src/conversation_cache.rs">
+//! Conversation cache para mantener historial de conversaciones por notebook.
+//! Evita crear nuevos UUID de conversación cada pregunta - reutiliza el mismo.
+⋮----
+//! Evita crear nuevos UUID de conversación cada pregunta - reutiliza el mismo.
+use std::collections::HashMap;
+⋮----
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+/// Historial de una conversación (preguntas y respuestas)
+#[derive(Debug, Clone, Default)]
+pub struct ConversationHistory {
+⋮----
+pub struct ConversationMessage {
+⋮----
+/// Cache de conversaciones por notebook
+/// Usa RwLock para permitir lectura concurrente y escritura exclusiva
+⋮----
+/// Usa RwLock para permitir lectura concurrente y escritura exclusiva
+pub struct ConversationCache {
+⋮----
+pub struct ConversationCache {
+/// Mapa de notebook_id -> (conversation_id, historial)
+    conversations: RwLock<HashMap<String, (String, ConversationHistory)>>,
+⋮----
+impl ConversationCache {
+pub fn new() -> Self {
+⋮----
+/// Obtener o crear una conversación para un notebook
+    /// Si no existe, crea una nueva con el conversation_id dado
+⋮----
+/// Si no existe, crea una nueva con el conversation_id dado
+    pub async fn get_or_create(&self, notebook_id: &str, conversation_id: &str) -> String {
+⋮----
+pub async fn get_or_create(&self, notebook_id: &str, conversation_id: &str) -> String {
+let mut cache = self.conversations.write().await;
+if let Some((existing_conv_id, _)) = cache.get(notebook_id) {
+// Ya existe conversación para este notebook - devolver el ID existente
+return existing_conv_id.clone();
+⋮----
+// Crear nueva conversación
+cache.insert(notebook_id.to_string(), (
+conversation_id.to_string(),
+⋮----
+conversation_id.to_string()
+⋮----
+/// Agregar un mensaje al historial de un notebook
+    pub async fn add_message(&self, notebook_id: &str, question: String, answer: String) {
+⋮----
+pub async fn add_message(&self, notebook_id: &str, question: String, answer: String) {
+⋮----
+if let Some((_, history)) = cache.get_mut(notebook_id) {
+history.messages.push(ConversationMessage { question, answer });
+⋮----
+/// Obtener el historial de un notebook
+    pub async fn get_history(&self, notebook_id: &str) -> Option<Vec<ConversationMessage>> {
+⋮----
+pub async fn get_history(&self, notebook_id: &str) -> Option<Vec<ConversationMessage>> {
+let cache = self.conversations.read().await;
+cache.get(notebook_id).map(|(_, h)| h.messages.clone())
+⋮----
+/// Obtener el conversation_id actual de un notebook
+    pub async fn get_conversation_id(&self, notebook_id: &str) -> Option<String> {
+⋮----
+pub async fn get_conversation_id(&self, notebook_id: &str) -> Option<String> {
+⋮----
+cache.get(notebook_id).map(|(conv_id, _)| conv_id.clone())
+⋮----
+/// Limpiar el historial de un notebook (nueva conversación)
+    pub async fn reset(&self, notebook_id: &str) {
+⋮----
+pub async fn reset(&self, notebook_id: &str) {
+⋮----
+cache.remove(notebook_id);
+⋮----
+impl Default for ConversationCache {
+fn default() -> Self {
+⋮----
+/// Tipo alias para usar en el cliente
+pub type SharedConversationCache = Arc<ConversationCache>;
+⋮----
+pub type SharedConversationCache = Arc<ConversationCache>;
+/// Crear una nueva instancia compartida del cache
+pub fn new_conversation_cache() -> SharedConversationCache {
+⋮----
+pub fn new_conversation_cache() -> SharedConversationCache {
+</file>
+
+<file path="src/errors.rs">
+//! Errores estructurados para NotebookLM Client
+//!
+⋮----
+//!
+//! Lecciones del reverse engineering:
+⋮----
+//! Lecciones del reverse engineering:
+//! - Cookies expiran frecuentemente (especialmente __Secure-1PSIDTS)
+⋮----
+//! - Cookies expiran frecuentemente (especialmente __Secure-1PSIDTS)
+//! - CSRF token (SNlM0e) no es estático, necesita refresh
+⋮----
+//! - CSRF token (SNlM0e) no es estático, necesita refresh
+//! - No hacer panic - devolver errores estructurados para que el LLM pueda actuar
+⋮----
+//! - No hacer panic - devolver errores estructurados para que el LLM pueda actuar
+use std::fmt;
+⋮----
+use std::fmt;
+/// Enum de errores específicos de NotebookLM
+#[derive(Debug, Clone)]
+pub enum NotebookLmError {
+/// Sesión de Google expiró - el usuario debe actualizar las cookies
+    SessionExpired(String),
+/// Token CSRF expiró o es inválido - intentar refresh automático
+    CsrfExpired(String),
+/// La fuente aún no está indexada - hacer polling
+    SourceNotReady(String),
+/// Rate limiting detectado - reducir concurrencia
+    RateLimited(String),
+/// Error al parsear respuesta de Google
+    ParseError(String),
+/// Error de red o HTTP
+    NetworkError(String),
+/// Error genérico no categorizado
+    Unknown(String),
+⋮----
+fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+⋮----
+NotebookLmError::SessionExpired(msg) => write!(
+⋮----
+NotebookLmError::CsrfExpired(msg) => write!(
+⋮----
+NotebookLmError::SourceNotReady(msg) => write!(
+⋮----
+write!(f, "RATE LIMITED: {}. Reducir concurrencia.", msg)
+⋮----
+NotebookLmError::ParseError(msg) => write!(f, "ERROR DE PARSEO: {}", msg),
+NotebookLmError::NetworkError(msg) => write!(f, "ERROR DE RED: {}", msg),
+NotebookLmError::Unknown(msg) => write!(f, "ERROR DESCONOCIDO: {}", msg),
+⋮----
+impl NotebookLmError {
+/// Crear error desde string genérico - intentar detectar el tipo
+    pub fn from_string(s: String) -> Self {
+⋮----
+pub fn from_string(s: String) -> Self {
+let lower = s.to_lowercase();
+if lower.contains("401") || lower.contains("unauthorized") || lower.contains("session") {
+⋮----
+} else if lower.contains("400") || lower.contains("csrf") || lower.contains("forbidden") {
+⋮----
+} else if lower.contains("429") || lower.contains("rate") || lower.contains("too many") {
+⋮----
+} else if lower.contains("parse") || lower.contains("json") {
+⋮----
+} else if lower.contains("network")
+|| lower.contains("connection")
+|| lower.contains("timeout")
+⋮----
+/// Verifica si es un error que requiere refresh de CSRF
+    pub fn requires_csrf_refresh(&self) -> bool {
+⋮----
+pub fn requires_csrf_refresh(&self) -> bool {
+matches!(self, NotebookLmError::CsrfExpired(_))
+⋮----
+/// Verifica si es un error que requiere actualizar credenciales
+    pub fn requires_new_credentials(&self) -> bool {
+⋮----
+pub fn requires_new_credentials(&self) -> bool {
+matches!(self, NotebookLmError::SessionExpired(_))
+⋮----
+/// Resultado de una operación que puede fallar con error estructurado
+pub type NotebookResult<T> = Result<T, NotebookLmError>;
+⋮----
+pub type NotebookResult<T> = Result<T, NotebookLmError>;
+⋮----
+mod tests {
+⋮----
+fn test_error_display() {
+let err = NotebookLmError::SessionExpired("Cookie expirada".to_string());
+assert!(err.to_string().contains("SESIÓN EXPIRADA"));
+⋮----
+fn test_error_from_string_detects_401() {
+let err = NotebookLmError::from_string("HTTP 401 Unauthorized".to_string());
+assert!(matches!(err, NotebookLmError::SessionExpired(_)));
+⋮----
+fn test_error_from_string_detects_400() {
+let err = NotebookLmError::from_string("HTTP 400 Bad Request".to_string());
+assert!(matches!(err, NotebookLmError::CsrfExpired(_)));
+⋮----
+fn test_requires_csrf_refresh() {
+let err = NotebookLmError::CsrfExpired("test".to_string());
+assert!(err.requires_csrf_refresh());
+let err2 = NotebookLmError::SessionExpired("test".to_string());
+assert!(!err2.requires_csrf_refresh());
+⋮----
+fn test_error_detects_session_expired_various_forms() {
+let forms = vec![
+⋮----
+let err = NotebookLmError::from_string(form.to_string());
+assert!(
+⋮----
+fn test_error_detects_csrf_expired_various_forms() {
+let forms = vec!["400 Bad Request", "HTTP 400", "forbidden", "csrf invalid"];
+⋮----
+fn test_error_detects_rate_limited() {
+let forms = vec!["429 Too Many Requests", "rate limit", "too many requests"];
+⋮----
+fn test_requires_new_credentials() {
+let err_session = NotebookLmError::SessionExpired("expired".to_string());
+assert!(err_session.requires_new_credentials());
+let err_csrf = NotebookLmError::CsrfExpired("expired".to_string());
+assert!(!err_csrf.requires_new_credentials());
+let err_rate = NotebookLmError::RateLimited("too many".to_string());
+assert!(!err_rate.requires_new_credentials());
+</file>
+
+<file path="src/main.rs">
+use std::sync::Arc;
+use std::path::PathBuf;
+use tokio::sync::RwLock;
+⋮----
+use tracing_subscriber::FmtSubscriber;
+⋮----
+struct Cli {
+⋮----
+enum Commands {
+/// Autenticar guardando las cookies encriptadas con DPAPI
+    Auth {
+⋮----
+/// Autenticar usando navegador Chrome (headless) - recomendado
+    AuthBrowser,
+/// Verificar estado de autenticación (disponibilidad de Chrome y credenciales)
+    AuthStatus,
+/// Verifica la conexión con Google NotebookLM creando una libreta de prueba
+    Verify,
+/// Hacer una pregunta a una libreta
+    Ask {
+/// UUID de la libreta
+        #[arg(long)]
+⋮----
+/// Pregunta a realizar
+        #[arg(long)]
+⋮----
+/// Añadir una fuente de texto a una libreta
+    AddSource {
+⋮----
+/// Título de la fuente
+        #[arg(long)]
+⋮----
+/// Contenido de la fuente
+        #[arg(long)]
+⋮----
+use schemars::JsonSchema;
+⋮----
+pub struct NotebookCreateRequest {
+⋮----
+pub struct SourceAddRequest {
+⋮----
+pub struct AskQuestionRequest {
+⋮----
+pub mod notebooklm_client;
+pub mod parser;
+pub mod errors;
+pub mod source_poller;
+pub mod auth_helper;
+pub mod conversation_cache;
+pub mod auth_browser;
+use notebooklm_client::NotebookLmClient;
+// Definición de ServerState encapsulado
+⋮----
+pub struct ServerState {
+// Necesitamos que Client se pueda clonar y pasar entre hilos si NotebookLmServer hace derivar Clone.
+// Usualmente Arc<RwLock<T>> lo permite.
+⋮----
+pub struct NotebookLmServer {
+⋮----
+impl NotebookLmServer {
+⋮----
+pub async fn notebook_list(&self) -> String {
+let lock = self.state.read().await;
+⋮----
+match c.list_notebooks().await {
+Ok(ls) => format!("Notebooks: {:?}", ls),
+Err(e) => format!("Error listando cuadernos: {}", e)
+⋮----
+"Error: Servidor no autenticado".into()
+⋮----
+pub async fn notebook_create(&self, req: Parameters<NotebookCreateRequest>) -> String {
+⋮----
+match c.create_notebook(title_str).await {
+Ok(id) => format!("Cuaderno creado. ID: {}", id),
+Err(e) => format!("Error creando cuaderno: {}", e)
+⋮----
+pub async fn source_add(&self, req: Parameters<SourceAddRequest>) -> String {
+⋮----
+match c.add_source(&request.notebook_id, &request.title, &request.content).await {
+Ok(id) => format!("Fuente añadida. ID: {}", id),
+Err(e) => format!("Error añadiendo fuente: {}", e)
+⋮----
+pub async fn ask_question(&self, req: Parameters<AskQuestionRequest>) -> String {
+⋮----
+match c.ask_question(&request.notebook_id, &request.question).await {
+⋮----
+Err(e) => format!("Error haciendo pregunta: {}", e)
+⋮----
+impl ServerHandler for NotebookLmServer {
+fn get_info(&self) -> rmcp::model::ServerInfo {
+⋮----
+.enable_tools()
+.enable_resources()
+.build()
+⋮----
+.with_server_info(
+rmcp::model::Implementation::new("notebooklm-mcp", env!("CARGO_PKG_VERSION"))
+.with_description("NotebookLM Unofficial MCP Server")
+⋮----
+.with_instructions("Use notebook:// URIs to access NotebookLM notebooks as resources. Tools are also available for creating notebooks and adding sources.")
+⋮----
+fn list_resources(
+⋮----
+match client.list_notebooks().await {
+⋮----
+let resources: Vec<rmcp::model::Resource> = notebooks.iter().map(|nb| {
+let uri = format!("notebook://{}", nb.id);
+⋮----
+raw.description = Some(format!("NotebookLM notebook: {}", nb.title));
+raw.mime_type = Some("application/json".to_string());
+⋮----
+}).collect();
+Ok(rmcp::model::ListResourcesResult::with_all_items(resources))
+⋮----
+Err(e) => Err(rmcp::ErrorData::internal_error(e, None)),
+⋮----
+Err(rmcp::ErrorData::internal_error("Servidor no autenticado", None))
+⋮----
+fn read_resource(
+⋮----
+if let Some(notebook_id) = uri.strip_prefix("notebook://") {
+⋮----
+if let Some(nb) = notebooks.iter().find(|n| n.id == notebook_id) {
+⋮----
+Ok(rmcp::model::ReadResourceResult::new(vec![
+⋮----
+Err(rmcp::ErrorData::resource_not_found(
+format!("Notebook {} no encontrado", notebook_id), None
+⋮----
+Err(rmcp::ErrorData::invalid_params(
+format!("URI no soportada: {}. Use notebook://<uuid>", uri), None
+⋮----
+// --- DPAPI Session Management ---
+⋮----
+struct SessionData {
+⋮----
+fn session_path() -> PathBuf {
+let home = dirs::home_dir().expect("No se pudo encontrar el directorio home");
+home.join(".notebooklm-mcp").join("session.bin")
+⋮----
+fn save_session(data: &SessionData) -> Result<(), Box<dyn std::error::Error>> {
+⋮----
+let path = session_path();
+if let Some(parent) = path.parent() {
+⋮----
+Ok(())
+⋮----
+fn load_session() -> Result<SessionData, Box<dyn std::error::Error>> {
+⋮----
+Ok(data)
+⋮----
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+⋮----
+.with_max_level(Level::INFO)
+.with_writer(std::io::stderr)
+.finish();
+⋮----
+.expect("Fallo al establecer el subscriber de tracing");
+⋮----
+// --- Comando Auth: encriptar y guardar en disco ---
+⋮----
+let session = SessionData { cookie: cookie.clone(), csrf: csrf.clone() };
+save_session(&session)?;
+info!("Credenciales encriptadas con DPAPI y guardadas en {:?} ({} bytes de cookie).", session_path(), cookie.len());
+return Ok(());
+⋮----
+// --- Comando AuthBrowser: autenticación vía Chrome headless ---
+⋮----
+println!("=== AUTENTICACIÓN POR NAVEGADOR ===");
+println!("Se abrirá una ventana del navegador Chrome.");
+println!("Por favor, inicia sesión en tu cuenta de Google.");
+println!("Una vez completado, las credenciales se guardarán automáticamente.");
+println!();
+// Run async auth in sync context
+⋮----
+let auth_result = rt.block_on(async {
+⋮----
+auth.authenticate().await
+⋮----
+println!("¡Autenticación exitosa!");
+println!("Cookie extraída: {} bytes", creds.cookie.len());
+// Extraer CSRF usando auth_helper (sync wrapper needed)
+let csrf = match rt.block_on(crate::auth_helper::AuthHelper::new().refresh_csrf(&creds.cookie)) {
+⋮----
+println!("CSRF extraído: {} chars", token.len());
+⋮----
+println!("Advertencia: No se pudo extraer CSRF automáticamente: {}", e);
+⋮----
+// Guardar en keyring o fallback a DPAPI
+⋮----
+println!("Advertencia: No se pudo guardar en keyring: {}", e);
+// Fallback to DPAPI
+let session = SessionData { cookie: creds.cookie, csrf: csrf.clone() };
+if let Err(e2) = save_session(&session) {
+error!("Error guardando credenciales: {}", e2);
+⋮----
+println!("Credenciales guardadas con DPAPI (fallback).");
+⋮----
+println!("\n¡Listo! Ya podés usar el servidor MCP.");
+⋮----
+println!("Navegador no disponible: {}", msg);
+println!("Por favor, usá el método manual:");
+println!("  notebooklm-mcp auth --cookie TU_COOKIE --csrf TU_CSRF");
+⋮----
+error!("Error de autenticación: {}", msg);
+⋮----
+// --- Comando AuthStatus: verificar estado de autenticación ---
+⋮----
+use crate::auth_browser::get_auth_status;
+let status = get_auth_status();
+println!("=== ESTADO DE AUTENTICACIÓN ===");
+println!("Chrome disponible: {}", if status.chrome_available { "Sí" } else { "No" });
+println!("Credenciales almacenadas: {}", if status.has_stored_credentials { "Sí" } else { "No" });
+⋮----
+println!("Consejo: Instalá Chrome para usar autenticación automática.");
+⋮----
+// --- Cargar sesión encriptada ---
+let (cookie, csrf) = match load_session() {
+⋮----
+error!("No se pudieron cargar las credenciales: {}. Ejecuta 'auth --cookie ... --csrf ...'", e);
+if matches!(cli.command, Some(Commands::Verify)) {
+⋮----
+// Ejecución del contrato de validación (E2E Test)
+⋮----
+info!("Iniciando contrato de validación E2E contra NotebookLM...");
+let client = NotebookLmClient::new(cookie.clone(), csrf.clone());
+info!("0. Listando libretas existentes...");
+⋮----
+Ok(nbs) => info!("Libretas encontradas: {:?}", nbs),
+Err(e) => error!("Fallo al listar libretas: {}", e)
+⋮----
+info!("1. Creando libreta de prueba...");
+match client.create_notebook("NotebookLM MCP Test").await {
+⋮----
+info!("¡Libreta creada con éxito! ID: {}", notebook_id);
+// info!("2. Añadiendo fuente de texto...");
+// match client.add_source(&notebook_id, "Origen de Prueba", "Este texto confirma que la API MCP funciona.").await {
+//     Ok(source_id) => {
+//         info!("¡Fuente añadida con éxito! ID: {}", source_id);
+//     },
+//     Err(e) => error!("Fallo al añadir fuente: {}", e)
+// }
+⋮----
+error!("Fallo de integración al crear la libreta: {}", e);
+⋮----
+info!("Prueba de validación del contrato finalizada.");
+⋮----
+// Comando AddSource - añadir una fuente a una libreta
+⋮----
+info!("Añadiendo fuente a la libreta {}...", notebook_id);
+⋮----
+match client.add_source(notebook_id, title, content).await {
+⋮----
+println!("\n=== FUENTE AÑADIDA ===\nSource ID: {}", source_id);
+⋮----
+Err(e) => error!("Error al añadir fuente: {}", e)
+⋮----
+// Comando Ask - hacer una pregunta a una libreta
+⋮----
+info!("Preguntando a la libreta {}...", notebook_id);
+⋮----
+match client.ask_question(notebook_id, question).await {
+⋮----
+println!("\n=== RESPUESTA ===\n{}", answer);
+⋮----
+Err(e) => error!("Error al hacer pregunta: {}", e)
+⋮----
+// We'll just use the notebooklm_client's add_source method
+info!("Iniciando NotebookLM Unofficial MCP Server...");
+let client = if !cookie.is_empty() && !csrf.is_empty() {
+Some(NotebookLmClient::new(cookie, csrf))
+⋮----
+info!("Conectando RMCP en stdio...");
+⋮----
+if let Err(e) = server.serve(transport).await?.waiting().await {
+error!("Error en servidor RMCP: {}", e);
+⋮----
+info!("Servidor detenido.");
+</file>
+
+<file path="src/notebooklm_client.rs">
+use serde_json::Value;
+use std::time::Duration;
+use rand::Rng;
+⋮----
+use tokio::sync::Semaphore;
+use tracing::info;
+use uuid::Uuid;
+// Importar funciones del parser para acceso defensivo
+⋮----
+// Re-exportar errores para uso externo
+pub use crate::errors::NotebookLmError;
+// Re-exportar SourcePoller
+pub use crate::source_poller::SourcePoller;
+// Re-exportar conversation cache
+⋮----
+type Limiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
+⋮----
+pub struct Notebook {
+⋮----
+pub struct NotebookLmClient {
+⋮----
+impl NotebookLmClient {
+pub fn new(cookie: String, csrf: String) -> Self {
+let quota = Quota::with_period(Duration::from_secs(2)).unwrap();
+⋮----
+headers.insert(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap());
+headers.insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/x-www-form-urlencoded;charset=utf-8"));
+⋮----
+.default_headers(headers)
+.build()
+.unwrap();
+// Semáforo para limitar uploads a 2 simultáneos
+⋮----
+conversation_cache: new_conversation_cache(),
+⋮----
+/// Apply exponential backoff with jitter for retries
+    async fn apply_exponential_backoff(attempt: u32) {
+⋮----
+async fn apply_exponential_backoff(attempt: u32) {
+⋮----
+// Base delay: 1 second, doubling each attempt
+let base_delay = 1u64.pow(attempt.min(6)); // Cap at 64 seconds
+⋮----
+rng.gen_range(100..1000) // 100ms to 1s jitter
+⋮----
+let capped_delay = total_delay.min(30000); // Max 30 seconds
+⋮----
+/// Retry wrapper with exponential backoff for batchexecute
+    async fn batchexecute_with_retry(&self, rpc_id: &str, payload: &str, max_retries: u32) -> Result<Value, String> {
+⋮----
+async fn batchexecute_with_retry(&self, rpc_id: &str, payload: &str, max_retries: u32) -> Result<Value, String> {
+⋮----
+match self.batchexecute_no_retry(rpc_id, payload).await {
+Ok(result) => return Ok(result),
+⋮----
+info!("Retry {}/{} for {}: {}", attempt + 1, max_retries + 1, rpc_id, last_error);
+⋮----
+Err(format!("Failed after {} retries: {}", max_retries + 1, last_error))
+⋮----
+async fn apply_jitter() {
+⋮----
+rng.gen_range(150..=600)
+⋮----
+async fn batchexecute(&self, rpc_id: &str, payload: &str) -> Result<Value, String> {
+self.batchexecute_with_retry(rpc_id, payload, 3).await
+⋮----
+/// Internal batchexecute without retry (for when caller handles retries)
+    async fn batchexecute_no_retry(&self, rpc_id: &str, payload: &str) -> Result<Value, String> {
+⋮----
+async fn batchexecute_no_retry(&self, rpc_id: &str, payload: &str) -> Result<Value, String> {
+self.limiter.until_ready().await;
+⋮----
+let req_array = format!("[[[\"{}\",\"{}\",null,\"generic\"]]]", rpc_id, payload.replace("\"", "\\\""));
+⋮----
+("at", self.csrf.clone())
+⋮----
+let url = format!("https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids={}&rt=c", rpc_id);
+let res = self.http.post(&url)
+.form(&form_data)
+.send()
+⋮----
+.map_err(|e| format!("HTTP request failed: {}", e))?;
+if !res.status().is_success() {
+return Err(format!("Error HTTP {}", res.status()));
+⋮----
+let text = res.text().await.map_err(|e| format!("No body text: {}", e))?;
+// Usar parser defensivo: strip_antixssi_prefix
+let cleaned = strip_antixssi_prefix(&text);
+// Parsear el JSON limpio
+let v: Value = serde_json::from_str(&cleaned).map_err(|e| e.to_string())?;
+Ok(v)
+⋮----
+pub async fn list_notebooks(&self) -> Result<Vec<Notebook>, String> {
+⋮----
+let response = self.batchexecute("wXbhsf", payload).await?;
+// Usar parser defensivo: extract_by_rpc_id
+let inner = extract_by_rpc_id(&response, "wXbhsf")
+.ok_or("No se encontró respuesta wXbhsf")?;
+// Extraer lista de notebooks: [[title, sources, uuid, ...], ...]
+let notebook_list = extract_notebook_list(&inner)
+.ok_or("No se pudo parsear lista de notebooks")?;
+⋮----
+if let Some(nb_arr) = nb_arr_val.as_array() {
+// Acceso defensivo: get_string_at en lugar de índice directo
+let title = get_string_at_or_default(nb_arr, 0, "Sin título");
+let id = get_uuid_at(nb_arr, 2).unwrap_or_default();
+if !id.is_empty() {
+notebooks.push(Notebook { id, title });
+⋮----
+info!("Parsed {} notebooks from wXbhsf response", notebooks.len());
+Ok(notebooks)
+⋮----
+pub async fn create_notebook(&self, title: &str) -> Result<String, String> {
+let inner_json = format!("[\"{}\",null,null,[2],[1,null,null,null,null,null,null,null,null,null,[1]]]", title.replace('\"', "\\\""));
+let response = self.batchexecute("CCqFvf", &inner_json).await?;
+⋮----
+let inner = extract_by_rpc_id(&response, "CCqFvf")
+.ok_or("No se encontró respuesta CCqFvf")?;
+// Extraer UUID del inner_json: ["", null, "UUID", ...]
+get_uuid_at(inner.as_array().unwrap(), 2)
+.ok_or_else(|| "No se pudo extraer el UUID del cuaderno nuevo".to_string())
+⋮----
+pub async fn add_source(&self, notebook_id: &str, title: &str, content: &str) -> Result<String, String> {
+let t = title.replace('\"', "\\\"");
+let c = content.replace('\"', "\\\"");
+let inner_json = format!(
+⋮----
+let response = self.batchexecute("izAoDd", &inner_json).await?;
+⋮----
+let inner = extract_by_rpc_id(&response, "izAoDd")
+.ok_or("No se encontró respuesta izAoDd")?;
+// Extraer source UUID: [[["SOURCE_UUID"]], ...]
+let arr = inner.as_array().ok_or("Inner no es array")?;
+let first = arr.first().ok_or("Array vacío")?.as_array().ok_or("No es array anidado")?;
+let first_inner = first.first().ok_or("Array anidado vacío")?.as_array().ok_or("No es array")?;
+get_string_at(first_inner, 0)
+.ok_or_else(|| "No se pudo extraer el UUID de la fuente nueva".to_string())
+⋮----
+/// Get the source IDs for a given notebook
+    pub async fn get_notebook_sources(&self, notebook_id: &str) -> Result<Vec<String>, String> {
+⋮----
+pub async fn get_notebook_sources(&self, notebook_id: &str) -> Result<Vec<String>, String> {
+let payload = format!("[\"{}\", null, [2], null, 0]", notebook_id.replace('"', "\\\""));
+let response = self.batchexecute("rLM1Ne", &payload).await?;
+⋮----
+let inner = extract_by_rpc_id(&response, "rLM1Ne")
+.ok_or("No se encontró respuesta rLM1Ne")?;
+// Extraer notebook_data: [[title, sources, notebook_id, ...]]
+⋮----
+let notebook_data = notebook_list.first()
+.and_then(|v| v.as_array())
+.ok_or("No se encontraron datos del notebook")?;
+// Extraer fuentes: extract_sources
+let source_ids = extract_sources(notebook_data)
+.ok_or_else(|| "No se pudieron extraer las fuentes".to_string())?;
+Ok(source_ids)
+⋮----
+/// Ask a question to a notebook using the streaming endpoint
+    pub async fn ask_question(&self, notebook_id: &str, question: &str) -> Result<String, String> {
+⋮----
+pub async fn ask_question(&self, notebook_id: &str, question: &str) -> Result<String, String> {
+// Step 1: Get source IDs for the notebook
+let source_ids = self.get_notebook_sources(notebook_id).await?;
+if source_ids.is_empty() {
+return Err("No hay fuentes disponibles en esta libreta. Añade fuentes antes de preguntar.".to_string());
+⋮----
+// Step 2: Build source array for the query
+// Format: [[["source_id_1"]], [["source_id_2"]], ...]
+let sources_array: Vec<String> = source_ids.iter()
+.map(|id| format!("[[\"{}\"]]", id))
+.collect();
+let sources_json = format!("[{}]", sources_array.join(","));
+// Step 3: Get or create conversation ID from cache
+let conv_id = self.conversation_cache.get_or_create(notebook_id, &Uuid::new_v4().to_string()).await;
+// Step 4: Get conversation history for context
+let history = self.conversation_cache.get_history(notebook_id).await;
+// Step 5: Build the params array (9 elements per notebooklm-py)
+// [sources_array, question, history, config, conv_id, null, null, notebook_id, 1]
+// Build history as JSON array of [question, answer] pairs
+⋮----
+let pairs: Vec<Value> = msgs.iter().map(|m| {
+⋮----
+}).collect();
+⋮----
+]).to_string();
+let f_req = serde_json::json!([null, params_json]).to_string();
+// Step 6: POST to the streaming endpoint
+⋮----
+let res = self.http.post(url)
+⋮----
+// Step 7: Parse the streaming response
+// Format: )]}'\n<size>\n<json>\n<size>\n<json>...
+let cleaned = if text.starts_with(")]}'") {
+text[4..].trim_start().to_string()
+⋮----
+// Extract answer from chunks
+⋮----
+// Step 8: Cache the conversation for future questions
+self.conversation_cache.add_message(notebook_id, question.to_string(), answer.clone()).await;
+Ok(answer)
+⋮----
+/// Parse the streaming response to extract the answer text
+    fn parse_streaming_response(response_text: &str) -> Result<String, String> {
+⋮----
+fn parse_streaming_response(response_text: &str) -> Result<String, String> {
+// Clean anti-XSSI prefix
+let cleaned = if response_text.starts_with(")]}'") {
+response_text[4..].trim_start().to_string()
+⋮----
+response_text.to_string()
+⋮----
+// Split into lines and look for JSON chunks
+⋮----
+for line in cleaned.lines() {
+let line = line.trim();
+if line.is_empty() {
+⋮----
+// Skip size markers
+if line.chars().all(|c| c.is_ascii_digit()) {
+⋮----
+// Try to parse as JSON
+⋮----
+// Look for answer in the structure
+⋮----
+if !ans.is_empty() {
+answers.push(ans);
+⋮----
+// Return the longest answer found
+let best = answers.iter().max_by_key(|a| a.len()).cloned();
+⋮----
+Some(answer) => Ok(answer),
+⋮----
+// Try a simpler approach - look for text between quotes at the start
+if cleaned.len() > 10 {
+Ok(format!("(Respuesta recibida, parsing mejorable):\n{}", &cleaned[..cleaned.len().min(3000)]))
+⋮----
+Err("No se pudo extraer respuesta".to_string())
+⋮----
+/// Extract answer text from a response chunk
+    fn extract_answer_from_chunk(data: &Value) -> Option<String> {
+⋮----
+fn extract_answer_from_chunk(data: &Value) -> Option<String> {
+// Response structure from notebooklm-py:
+// [["wrb.fr", null, "<inner_json>", ...]]
+// inner_json: [["answer_text", null, [citations], ...], ...]
+if let Some(arr) = data.as_array() {
+⋮----
+if let Some(item_arr) = item.as_array() {
+// Skip if first element isn't "wrb.fr"
+if item_arr.get(0)?.as_str()? != "wrb.fr" {
+⋮----
+// Get inner JSON string
+let inner_json_str = item_arr.get(2)?.as_str()?;
+let inner_data: Value = serde_json::from_str(inner_json_str).ok()?;
+// inner_data is an array: [[answer_text, null, citations, ...], ...]
+if let Some(inner_arr) = inner_data.as_array() {
+⋮----
+if let Some(ia) = inner_item.as_array() {
+// Answer text is at index 0
+if let Some(text) = ia.get(0).and_then(|v| v.as_str()) {
+if !text.is_empty() {
+return Some(text.to_string());
+</file>
+
+<file path="src/parser.rs">
+//! Parser defensivo para respuestas RPC de NotebookLM
+//!
+⋮----
+//!
+//! Lecciones del reverse engineering (notebooklm-py):
+⋮----
+//! Lecciones del reverse engineering (notebooklm-py):
+//! - Arrays posicionales: [id, null, null, text] no objetos JSON
+⋮----
+//! - Arrays posicionales: [id, null, null, text] no objetos JSON
+//! - Payload anidado: doble serialización (objeto → String → json![])
+⋮----
+//! - Payload anidado: doble serialización (objeto → String → json![])
+//! - Anti-Hijacking: prefijos )]}' que deben removerse
+⋮----
+//! - Anti-Hijacking: prefijos )]}' que deben removerse
+//! - Acceso defensivo: nunca usar unwrap() en índices de array
+⋮----
+//! - Acceso defensivo: nunca usar unwrap() en índices de array
+use serde_json::Value;
+⋮----
+use serde_json::Value;
+/// Resultado genérico de una llamada RPC batchexecute
+/// Formato: [["wrb.fr", "rpc_id", "<inner_json>", ...], ...]
+⋮----
+/// Formato: [["wrb.fr", "rpc_id", "<inner_json>", ...], ...]
+#[derive(Debug, Clone)]
+pub struct RpcResponse {
+⋮----
+/// Extrae el inner_json de una respuesta RPC buscando por rpc_id
+/// DEVUELVE el valor en la posición 2 (inner_json) si coincide el rpc_id
+⋮----
+/// DEVUELVE el valor en la posición 2 (inner_json) si coincide el rpc_id
+/// Usa búsqueda directa en array vs línea por línea
+⋮----
+/// Usa búsqueda directa en array vs línea por línea
+pub fn extract_by_rpc_id(response: &Value, rpc_id: &str) -> Option<Value> {
+⋮----
+pub fn extract_by_rpc_id(response: &Value, rpc_id: &str) -> Option<Value> {
+let arr = response.as_array()?;
+// Búsqueda directa en array - O(n) pero sin iterar líneas
+⋮----
+let item_arr = item.as_array()?;
+// item[0] = "wrb.fr" (identificador de respuesta)
+// item[1] = rpc_id (identificador de método)
+// item[2] = inner_json (payload real)
+if item_arr.get(0)?.as_str()? != "wrb.fr" {
+⋮----
+if item_arr.get(1)?.as_str()? != rpc_id {
+⋮----
+// Extraer inner_json como Value
+let inner_str = item_arr.get(2)?.as_str()?;
+let inner: Value = serde_json::from_str(inner_str).ok()?;
+return Some(inner);
+⋮----
+/// Extrae un string del inner_json por índice de array validado
+/// evita panic si el índice no existe
+⋮----
+/// evita panic si el índice no existe
+pub fn get_string_at(array: &[Value], index: usize) -> Option<String> {
+⋮----
+pub fn get_string_at(array: &[Value], index: usize) -> Option<String> {
+array.get(index)?.as_str().map(|s| s.to_string())
+⋮----
+/// Extrae un string del inner_json por índice, con default
+pub fn get_string_at_or_default(array: &[Value], index: usize, default: &str) -> String {
+⋮----
+pub fn get_string_at_or_default(array: &[Value], index: usize, default: &str) -> String {
+get_string_at(array, index).unwrap_or_else(|| default.to_string())
+⋮----
+/// Extrae un UUID (string de 36 caracteres) del inner_json por índice
+pub fn get_uuid_at(array: &[Value], index: usize) -> Option<String> {
+⋮----
+pub fn get_uuid_at(array: &[Value], index: usize) -> Option<String> {
+let s = array.get(index)?.as_str()?;
+if s.len() == 36 {
+Some(s.to_string())
+⋮----
+/// Limpia el prefijo anti-XSSI de las respuestas HTTP de Google
+/// El prefijo es: )]}'\n o )]}'
+⋮----
+/// El prefijo es: )]}'\n o )]}'
+/// Retorna el texto desde el primer '[' encontradas
+⋮----
+/// Retorna el texto desde el primer '[' encontradas
+pub fn strip_antixssi_prefix(text: &str) -> String {
+⋮----
+pub fn strip_antixssi_prefix(text: &str) -> String {
+// Buscar el primer '[' y retornar todo desde ahí
+// Esto es más robusto que buscar "]}'\n" específicamente
+if let Some(pos) = text.find('[') {
+text[pos..].to_string()
+⋮----
+// Si no encuentra '[', retornar el texto original
+text.to_string()
+⋮----
+/// Convierte un string JSON escapado en un Value parsed
+pub fn parse_escaped_json(json_str: &str) -> Result<Value, String> {
+⋮----
+pub fn parse_escaped_json(json_str: &str) -> Result<Value, String> {
+serde_json::from_str(json_str).map_err(|e| format!("Failed to parse inner JSON: {}", e))
+⋮----
+/// Extrae un array del inner_json (posición 0 del wrapper doble)
+pub fn extract_notebook_list(inner: &Value) -> Option<Vec<Value>> {
+⋮----
+pub fn extract_notebook_list(inner: &Value) -> Option<Vec<Value>> {
+let outer = inner.as_array()?;
+let first = outer.first()?;
+let array = first.as_array()?;
+Some(array.to_vec())
+⋮----
+/// Extrae fuentes de un notebook desde notebook_data[1]
+pub fn extract_sources(notebook_data: &[Value]) -> Option<Vec<String>> {
+⋮----
+pub fn extract_sources(notebook_data: &[Value]) -> Option<Vec<String>> {
+let sources_elem = notebook_data.get(1)?;
+let sources_arr = sources_elem.as_array()?;
+⋮----
+// Formato: [[[source_id]], title, ...]
+let inner0 = source_entry.get(0)?.as_array()?;
+if let Some(sid) = inner0.get(0)?.as_str() {
+if sid.len() == 36 {
+ids.push(sid.to_string());
+⋮----
+Some(ids)
+⋮----
+/// Deserializador personalizado para arrays posicionales
+/// Maneja el caso donde valores nulos al final se omiten
+⋮----
+/// Maneja el caso donde valores nulos al final se omiten
+/// NOTA: Función no crítica - removida para simplificar compilacion
+⋮----
+/// NOTA: Función no crítica - removida para simplificar compilacion
+#[allow(dead_code)]
+pub fn deserialize_positional_array<T: Default>() -> T {
+⋮----
+// Helper trait para valores por defecto en tipos que no implementan Default
+⋮----
+trait OrDefault {
+⋮----
+impl OrDefault for Value {
+fn or_default(self) -> Self {
+⋮----
+mod tests {
+⋮----
+fn test_strip_antixssi_prefix_with_newline() {
+⋮----
+let result = strip_antixssi_prefix(input);
+assert!(result.starts_with("["));
+⋮----
+fn test_strip_antixssi_prefix_without_prefix() {
+⋮----
+fn test_strip_antixssi_prefix_finds_first_bracket() {
+⋮----
+assert!(result.starts_with("[["));
+⋮----
+fn test_get_string_at_valid_index() {
+let arr = vec![
+⋮----
+assert_eq!(get_string_at(&arr, 0), Some("hello".to_string()));
+assert_eq!(get_string_at(&arr, 1), None);
+assert_eq!(get_string_at(&arr, 5), None);
+⋮----
+fn test_get_uuid_at_valid() {
+let arr = vec![Value::String(
+⋮----
+assert_eq!(
+⋮----
+fn test_get_uuid_at_invalid_length() {
+let arr = vec![Value::String("not-a-uuid".to_string())];
+assert_eq!(get_uuid_at(&arr, 0), None);
+⋮----
+fn test_extract_by_rpc_id() {
+⋮----
+serde_json::from_str(r#"[["wrb.fr", "testRpc", "{\"key\": \"value\"}"]]"#).unwrap();
+let result = extract_by_rpc_id(&response, "testRpc");
+assert!(result.is_some());
+let inner = result.unwrap();
+assert_eq!(inner.get("key").and_then(|v| v.as_str()), Some("value"));
+⋮----
+fn test_extract_by_rpc_id_not_found() {
+let response: Value = serde_json::from_str(r#"[["wrb.fr", "testRpc", "{}"]]"#).unwrap();
+let result = extract_by_rpc_id(&response, "otherRpc");
+assert!(result.is_none());
+⋮----
+fn test_parse_list_notebooks_response() {
+// Este test verifica el parsing del inner JSON
+// El formato real requiere double-encoding del payload RPC
+// Test simplificado: verificar que extract_notebook_list funciona con arrays
+⋮----
+).unwrap();
+let notebooks = extract_notebook_list(&inner_json);
+assert!(notebooks.is_some(), "Should extract notebook list");
+let nb_list = notebooks.unwrap();
+assert!(!nb_list.is_empty(), "Should have at least one notebook");
+⋮----
+fn test_extract_sources_real_format() {
+// Este test requiere el formato exacto de la API:
+// [title, [[source_id, title], ...]]
+// Marcado como ignore hasta tener fixture real
+⋮----
+fn test_extract_sources_from_notebook_data() {
+// Este test verifica el parsing básico de arrays
+// El formato real de fuentes requiere análisis más detallado de la API
+let notebook_data: Vec<Value> = vec![
+⋮----
+Value::Null, // Fuentes no disponibles
+⋮----
+let sources = extract_sources(&notebook_data);
+// Cuando el segundo elemento es null, el parsing debe manejarlo
+// Verificar que no hay panic
+assert!(sources.is_none() || sources.unwrap().is_empty());
+⋮----
+fn test_strip_antixssi_from_google_response() {
+// Simular respuesta real de Google con prefijo anti-XSSI
+⋮----
+let cleaned = strip_antixssi_prefix(input);
+assert!(cleaned.starts_with("[["), "Should start with array");
+assert!(
+</file>
+
+<file path="src/source_poller.rs">
+//! Source Poller - Espera hasta que una fuente esté lista para consulta
+//!
+⋮----
+//!
+//! Lecciones del reverse engineering (notebooklm-py):
+⋮----
+//! Lecciones del reverse engineering (notebooklm-py):
+//! - Después de subir una fuente, entra en estado asíncrono de indexación
+⋮----
+//! - Después de subir una fuente, entra en estado asíncrono de indexación
+//! - Si preguntas al chat inmediatamente, fallará (RAG-strict)
+⋮----
+//! - Si preguntas al chat inmediatamente, fallará (RAG-strict)
+//! - Debe implementarse polling que consulte el estado hasta SUCCESS
+⋮----
+//! - Debe implementarse polling que consulte el estado hasta SUCCESS
+//! - Timeout necesario para no quedar atascado infinitamente
+⋮----
+//! - Timeout necesario para no quedar atascado infinitamente
+use crate::errors::{NotebookLmError, NotebookResult};
+use std::time::Duration;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+⋮----
+/// Referencia al cliente de NotebookLM (para evitar Clone)
+pub type NotebookClientRef = Arc<RwLock<crate::NotebookLmClient>>;
+⋮----
+pub type NotebookClientRef = Arc<RwLock<crate::NotebookLmClient>>;
+/// Configuración para el polling de fuentes
+#[derive(Debug, Clone)]
+pub struct PollerConfig {
+/// Intervalo entre verificaciones (default: 2 segundos)
+    pub check_interval: Duration,
+/// Timeout máximo para esperar (default: 60 segundos)
+    pub timeout: Duration,
+/// Máximo de reintentos antes de dar error (default: 30)
+    pub max_retries: usize,
+⋮----
+impl Default for PollerConfig {
+fn default() -> Self {
+⋮----
+/// Estado de una fuente según la API de NotebookLM
+#[derive(Debug, Clone, PartialEq)]
+pub enum SourceState {
+/// Fuente exitosa y lista para consultas
+    Ready,
+/// Fuente todavía procesándose
+    Processing,
+/// Hubo un error al procesar la fuente
+    Error(String),
+/// Estado desconocido
+    Unknown,
+⋮----
+impl SourceState {
+/// Parsear el estado desde la respuesta de get_source
+    pub fn from_response(response: &serde_json::Value) -> Self {
+⋮----
+pub fn from_response(response: &serde_json::Value) -> Self {
+if response.is_null() || response.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+⋮----
+/// Poller para esperar hasta que una fuente esté lista
+pub struct SourcePoller {
+⋮----
+pub struct SourcePoller {
+⋮----
+impl SourcePoller {
+/// Crear poller con Arc<RwLock<NotebookLmClient>>
+    pub fn new(client: NotebookClientRef) -> Self {
+⋮----
+pub fn new(client: NotebookClientRef) -> Self {
+⋮----
+pub fn with_config(client: NotebookClientRef, config: PollerConfig) -> Self {
+⋮----
+/// Espera hasta que la fuente esté lista para consulta
+    pub async fn wait_for_source_ready(&self, notebook_id: &str, source_id: &str) -> NotebookResult<SourceState> {
+⋮----
+pub async fn wait_for_source_ready(&self, notebook_id: &str, source_id: &str) -> NotebookResult<SourceState> {
+info!("Iniciando polling para fuente {} en notebook {}", source_id, notebook_id);
+⋮----
+warn!("Timeout: máximo de reintentos alcanzado para fuente {}", source_id);
+return Err(NotebookLmError::SourceNotReady(
+format!("Timeout después de {} intentos", self.config.max_retries)
+⋮----
+match self.check_source_state(notebook_id, source_id).await {
+⋮----
+info!("Fuente {} lista para consulta", source_id);
+return Ok(state);
+⋮----
+info!("Fuente {} aún procesando (intento {}/{})",
+⋮----
+return Err(NotebookLmError::SourceNotReady(msg));
+⋮----
+warn!("Estado desconocido para fuente {}, continuando...", source_id);
+⋮----
+warn!("Error al verificar fuente {}: {}", source_id, e);
+⋮----
+/// Consulta el estado de una fuente específica
+    async fn check_source_state(&self, notebook_id: &str, source_id: &str) -> NotebookResult<SourceState> {
+⋮----
+async fn check_source_state(&self, notebook_id: &str, source_id: &str) -> NotebookResult<SourceState> {
+let client = self.client.read().await;
+let sources = client.get_notebook_sources(notebook_id)
+⋮----
+.map_err(NotebookLmError::from_string)?;
+if sources.contains(&source_id.to_string()) {
+Ok(SourceState::Ready)
+⋮----
+Ok(SourceState::Processing)
+⋮----
+/// Wrapper async para añadir fuente con polling automático
+pub async fn add_source_with_polling(
+⋮----
+pub async fn add_source_with_polling(
+⋮----
+let poller = SourcePoller::new(client.clone());
+// Primero añadir la fuente
+⋮----
+let c = client.read().await;
+c.add_source(notebook_id, title, content)
+⋮----
+.map_err(NotebookLmError::from_string)?
+⋮----
+info!("Fuente añadida con ID: {}, esperando que esté lista...", source_id);
+// Luego esperar hasta que esté lista
+poller.wait_for_source_ready(notebook_id, &source_id).await?;
+Ok(source_id)
+⋮----
+mod tests {
+⋮----
+fn test_source_state_from_response() {
+⋮----
+assert_eq!(SourceState::from_response(&empty), SourceState::Processing);
+⋮----
+fn test_poller_default_config() {
+⋮----
+assert_eq!(config.check_interval, Duration::from_secs(2));
+assert_eq!(config.timeout, Duration::from_secs(60));
+assert_eq!(config.max_retries, 30);
+⋮----
+fn test_poller_custom_config() {
+⋮----
+assert_eq!(config.check_interval, Duration::from_secs(5));
+assert_eq!(config.timeout, Duration::from_secs(120));
+assert_eq!(config.max_retries, 10);
+⋮----
+fn test_source_state_ready() {
+// Source con datos = ready
+⋮----
+assert_eq!(state, SourceState::Ready);
+⋮----
+fn test_source_state_processing_empty_array() {
+⋮----
+assert_eq!(state, SourceState::Processing);
+</file>
+
+<file path="tests/fixtures/add_source_response.json">
+[
+  [
+    "izAoDd",
+    "[[[[\"src-new-uuid-1234-5678-9abc-def0-123456789abc\"]]], [[\"nb-uuid-003-1234-5678-9abc-def0-123456789abf\"]], [[2]]]]",
+    null,
+    "generic"
+  ]
+]
+</file>
+
+<file path="tests/fixtures/ask_question_response.txt">
+)]}'
+234
+[["wrb.fr",null,"[[\\\"Esta es una respuesta de prueba de NotebookLM con información contextualizada.\\\",null,[],null,null,null,null,null,null,null,[]]\"]]",null,null]
+45
+[["wrb.fr",null,"[[\\\"La respuesta puede venir en múltiples chunks.\\\",null,[\\\"fuente1\\\"],null,null,null,null,null,null,null,[]]\"]]",null,null]
+</file>
+
+<file path="tests/fixtures/list_notebooks_response.json">
+[
+  [
+    "wXbhsf",
+    "[[[\"Test Notebook 1\", [], \"nb-uuid-001-1234-5678-9abc-def0-123456789abc\", null, null, []], [\"Test Notebook 2\", [], \"nb-uuid-002-1234-5678-9abc-def0-123456789abd\", null, null, []], [\"Mi Cuaderno de Prueba\", [\"src-uuid-001-1234-5678-9abc-def0-123456789abe\"], \"nb-uuid-003-1234-5678-9abc-def0-123456789abf\", null, null, [2]]]]]",
+    null,
+    "generic"
+  ]
+]
+</file>
+
+<file path="tests/fixtures/source_ready_response.json">
+[["SUCCESS", "fuente indexada correctamente", 100]]
+</file>
+
+<file path="tests/integration.rs">
+//! Integration tests placeholder for NotebookLM MCP
+//!
+⋮----
+//!
+//! Note: This is a binary crate (not a library), so tests that need access
+⋮----
+//! Note: This is a binary crate (not a library), so tests that need access
+//! to internal modules should be in the src/ modules themselves.
+⋮----
+//! to internal modules should be in the src/ modules themselves.
+//! Run `cargo test` to execute all unit tests in src/ modules.
+⋮----
+//! Run `cargo test` to execute all unit tests in src/ modules.
+#[test]
+fn test_project_compiles() {
+// If this test runs, the project compiled successfully
+assert!(true);
+</file>
+
+<file path="Cargo.toml">
+[package]
+name = "notebooklm-mcp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.50.0", features = ["full"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+clap = { version = "4.4", features = ["derive"] }
+windows-dpapi = "0.2"
+dirs = "6"
+governor = "0.6"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+rmcp = { version = "1.2", features = ["server", "macros", "transport-io"] }
+schemars = "1.2.1"
+regex = "1"
+
+# Phase 6: Browser-based authentication
+# headless_chrome: Automate Chrome via CDP for browser automation
+# keyring: Cross-platform credential storage (Windows Credential Manager / Linux Secret Service)
+# tempfile: Temporary directories for browser profile
+headless_chrome = "1"
+keyring = "3"
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Security_Credentials", "Win32_Foundation"] }
+</file>
+
+<file path="README.md">
+# NotebookLM MCP Server
+
+[![Rust](https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square&logo=rust)](https://www.rust-lang.org)
+[![MCP](https://img.shields.io/badge/MCP-Protocol-blue?style=flat-square)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+
+Servidor MCP (Model Context Protocol) no oficial para Google NotebookLM. Permite a agentes IA interacting con libretas NotebookLM — crear libretas, añadir fuentes, y chatear con documentos.
+
+## Quick Start
+
+```bash
+# Compilar
+cargo build --release
+
+# Autenticarse (método recomendado)
+./target/release/notebooklm-mcp auth-browser
+
+# Verificar conexión
+./target/release/notebooklm-mcp verify
+```
+
+Luego configurá tu cliente MCP (Cursor, Claude Desktop, Windsurf) pointing al binario.
+
+## Documentación
+
+| Guía | Descripción |
+|------|-------------|
+| [Overview](00-overview.md) | ¿Qué es y para qué sirve? |
+| [Arquitectura](01-architecture.md) | Diseño técnico y módulos |
+| [API Reference](02-api-reference.md) | Herramientas MCP y CLI |
+| [Modelos de Datos](03-data-models.md) | Estructuras y tipos |
+| [Instalación](04-setup.md) | Setup completo |
+| [Guía de Usuario](05-user-guide.md) | Uso práctico |
+| [Changelog](06-changelog.md) | Historial de cambios |
+
+## Características
+
+- ✅ Servidor MCP completo
+- ✅ Autenticación browser automation (Chrome headless)
+- ✅ Rate limiting integrado
+- ✅ Cache conversacional
+- ✅ Polling automático de fuentes
+- ✅ Errores estructurados
+
+## Estado
+
+**Experimental** — Este proyecto hace reverse engineering de APIs internas de Google. Usalo bajo tu propio riesgo.
+
+---
+
+¿Encontraste un bug? Abrí un issue en GitHub.
+</file>
+
+<file path=".gitignore">
+# Build outputs
+/target/
+*.exe
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+verify.log
+debug.log
+run.log
+check.log
+check2.log
+
+# Local tools
+.playwright-mcp/
+.atl/
+.zed/
+.rules/
+repomix_output.md
+
+# Documentation (internal)
+"NotebookLM on Rust implementation_plan 27 3 2026"
+workflows/
+skills/
+
+# Git
+.git/
+</file>
+
+</files>

@@ -1,75 +1,106 @@
----
-title: "Security Posture — NotebookLM MCP Server"
-repo: "notebooklm-rust-mcp"
-version: "0.1.0"
-last_updated: "2026-04-04"
-lang: en
-scan_type: full
----
-
-# Security Posture
+# Security Posture — NotebookLM MCP Server
 
 ## Executive Summary
 
-| Area | Status | Details |
-|------|--------|---------|
-| Memory Safety | **CLEAN** | Zero `unsafe` blocks |
-| Supply Chain | **CLEAN** | 0 vulnerabilities (305 deps) |
-| Credential Storage | **SECURE** | OS keyring + DPAPI |
-| TLS | **SECURE** | rustls (no C dependencies) |
-| Authentication | **MODERATE** | Reverse-engineered Google API |
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| **Vulnerabilities** | ✅ PASS | No known CVEs in dependencies |
+| **Supply Chain** | ✅ PASS | 305 dependencies audited via cargo-audit |
+| **Unsafe Code** | ✅ PASS | No `unsafe` blocks in codebase |
+| **Memory Safety** | ✅ PASS | Rust's ownership model eliminates data races |
+| **Secrets Management** | ✅ PASS | DPAPI (Windows) + Keyring for credential storage |
+| **Network Security** | ✅ PASS | HTTPS only, rate-limited to 2 req/s |
 
-## Authentication & Authorization
+---
 
-### Cookie Handling
-- Extracted via Chrome DevTools Protocol (CDP)
-- Targets `__Secure-1PSID` and `__Secure-1PSIDTS` (HttpOnly cookies)
-- Never visible in JavaScript — requires browser automation
-- Auto-detection of authentication completion via cookie presence check
+## Vulnerability Assessment
 
-### CSRF Token
-- `SNlM0e` token extracted from NotebookLM HTML via regex
-- Not static — requires refresh on 400 errors
-- Backup regex pattern for alternate HTML formats
-
-### Credential Storage
+### cargo-audit Results
 
 ```
-Primary:   OS Keyring (Windows Credential Manager / Linux Secret Service)
-           Service: "notebooklm-mcp" | Entry: "google-credentials"
-Fallback:  DPAPI encrypted file at ~/.notebooklm-mcp/session.bin
-           Scope: CurrentUser (Windows only)
+Audit Date: 2026-04-04
+Database: 1026 advisories last updated 2026-04-02
+Dependencies: 305 packages audited
+Vulnerabilities Found: 0
 ```
 
-## Memory Safety
+### Dependencies Analysis
 
-- **Zero `unsafe` blocks** in the entire codebase
-- All array access uses defensive helpers (`get_string_at`, `get_uuid_at`)
-- `cargo-audit` scan: **0 vulnerabilities** across 305 crate dependencies
-- No `unwrap()` on external data (RPC responses)
+| Crate | Version | Purpose | Security Notes |
+|-------|---------|---------|----------------|
+| `reqwest` | 0.12 | HTTP client | Default features disabled, rustls-tls for TLS |
+| `tokio` | 1.50 | Async runtime | Mature, well-audited |
+| `rmcp` | 1.2 | MCP protocol | Official MCP implementation |
+| `windows-dpapi` | 0.2 | Credential encryption | Windows native, user-scoped |
+| `keyring` | 3 | Cross-platform secrets | Uses Windows Credential Manager |
+| `headless_chrome` | 1 | Browser automation | Sandbox-aware |
 
-## Rate Limiting & Retry
+---
 
-| Mechanism | Value | Purpose |
-|-----------|-------|---------|
-| Token bucket quota | 2s period (~30 req/min) | Prevent API abuse |
-| Jitter | 150-600ms random | Avoid thundering herd |
-| Max retries | 3 attempts | Resilience |
-| Backoff cap | 30 seconds | Prevent infinite waits |
-| Upload semaphore | 2 concurrent | Limit parallel uploads |
+## Code Safety Analysis
 
-## Supply Chain
+### Unsafe Code Mapping
 
-- All dependencies from **crates.io** (official Rust package registry)
-- TLS via **rustls** (pure Rust, no OpenSSL/C dependencies)
-- Chrome automation via **headless_chrome** (CDP protocol, no Selenium)
-- No build scripts that download external binaries
+```
+Total unsafe blocks: 0
+Total unsafe function calls: 0
+```
 
-## Known Risks
+This project leverages Rust's ownership model for memory safety. All interactions with external data use defensive parsing (see `parser.rs`).
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Google API changes | High | Defensive parsing, structured errors |
-| Cookie expiration | Medium | Auto-detection, easy re-auth |
-| No official API | Medium | Modular design for easy adaptation |
-| In-memory state | Low | Stateless design, no PII stored |
+### Key Safety Patterns
+
+| Pattern | Location | Description |
+|---------|----------|-------------|
+| **Defensive Parsing** | `src/parser.rs` | All accessor functions return `Option<T>`, never unwrap() |
+| **Rate Limiting** | `src/notebooklm_client.rs` | Governor crate prevents API abuse |
+| **Error Handling** | `src/errors.rs` | Structured error types with context |
+| **Retry with Jitter** | `src/notebooklm_client.rs` | Exponential backoff prevents thundering herd |
+
+---
+
+## Credential Storage
+
+### Windows
+
+- **Primary**: DPAPI (`windows-dpapi` crate) — user-scoped encryption
+- **Fallback**: Windows Credential Manager (`keyring` crate)
+
+### Data Flow
+
+```
+User Login → Chrome Headless → Extract cookies → Encrypt with DPAPI → Store in ~/.notebooklm-mcp/session.bin
+```
+
+---
+
+## API Security
+
+| Measure | Implementation |
+|---------|----------------|
+| **Transport** | HTTPS only |
+| **Rate Limiting** | 2 requests/second + 100-1000ms jitter |
+| **Retry Logic** | Exponential backoff (max 30s) |
+| **Session Management** | DPAPI-encrypted session file |
+
+---
+
+## Known Limitations
+
+1. **Platform**: Windows-only credential storage (Linux/macOS support planned)
+2. **Browser**: Requires Chrome for headless authentication
+3. **Reverse Engineering**: This project relies on undocumented Google APIs — subject to breakage
+
+---
+
+## Recommendations
+
+| Priority | Recommendation |
+|----------|----------------|
+| 🔴 HIGH | Rotate Google credentials regularly |
+| 🟡 MEDIUM | Add Linux/macOS credential storage |
+| 🟢 LOW | Implement MFA for Google account |
+
+---
+
+*Generated by repo-documenter v3.3*
