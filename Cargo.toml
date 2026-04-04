@@ -1,0 +1,32 @@
+[package]
+name = "notebooklm-mcp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.50.0", features = ["full"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+clap = { version = "4.4", features = ["derive"] }
+windows-dpapi = "0.2"
+dirs = "6"
+governor = "0.6"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+rmcp = { version = "1.2", features = ["server", "macros", "transport-io"] }
+schemars = "1.2.1"
+regex = "1"
+
+# Phase 6: Browser-based authentication
+# headless_chrome: Automate Chrome via CDP for browser automation
+# keyring: Cross-platform credential storage (Windows Credential Manager / Linux Secret Service)
+# tempfile: Temporary directories for browser profile
+headless_chrome = "1"
+keyring = "3"
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Security_Credentials", "Win32_Foundation"] }
