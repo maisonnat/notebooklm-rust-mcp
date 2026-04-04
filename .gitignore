@@ -35,6 +35,3 @@ skills/
 
 # Git
 .git/
-
-# Documentation generated (use docs repo)
-docs/
