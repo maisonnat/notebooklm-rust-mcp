@@ -1,53 +1,34 @@
 ---
-title: "Overview — NotebookLM MCP Server"
+title: "Registro de Alteracoes — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
 last_updated: "2026-04-04"
-last_commit: "b467e15"
+lang: pt
 scan_type: full
-tags: [rust, mcp, documentation]
-audience: both
 ---
 
-# Changelog (Português)
+# Registro de Alteracoes
 
-Todas as alterações_notáveis deste projeto serão documentadas neste arquivo.
-
-## [0.1.0] - 2026-04-04
+## [0.1.0] — 2026-04-04
 
 ### Adicionado
+- Servidor MCP com 4 ferramentas: `notebook_list`, `notebook_create`, `source_add`, `ask_question`
+- Autenticacao baseada em browser via Chrome CDP (comando `auth-browser`)
+- Armazenamento de credenciais no keyring do SO com fallback DPAPI
+- Extracao de token CSRF do HTML (`SNlM0e`)
+- Limitacao de taxa via governor (periodo de 2s, ~30 req/min)
+- Backoff exponencial com jitter para retentativas
+- Polling de fontes para verificacao de prontidao de indexacao assincrona
+- Cache de conversa (em memoria, por caderno)
+- Parser defensivo para respostas RPC do Google (remocao de anti-XSSI)
+- Enum de erros estruturado com deteccao automatica
+- Parsing de resposta streaming para `ask_question`
+- Autenticacao manual via flags `--cookie` / `--csrf`
+- Comando `verify` para validacao E2E
+- Comando `auth-status`
+- Testes unitarios em todos os modulos
 
-- **Servidor MCP completo** com 4 ferramentas: `notebook_list`, `notebook_create`, `source_add`, `ask_question`
-- **Recursos MCP**: notebooks disponíveis como URIs `notebook://{uuid}`
-- **Autenticação por browser automation** via Chrome headless (CDP)
-- **Autenticação manual** com DPAPI (Windows)
-- **Suporte a keyring**: Windows Credential Manager / Linux Secret Service
-- **Rate limiting** com governor (2 req/segundo)
-- **Retry com exponential backoff** para robustez
-- **Parser defensivo** para respostas RPC do Google
-- **Conversation cache** para manter contexto entre perguntas
-- **Source poller** para esperar indexação de fontes
-- **Erros estruturados** para melhor debugging
-
-### Detalhes Técnicos
-
-- **Runtime**: Tokio async
-- **HTTP Client**: reqwest com streaming
-- **Servidor MCP**: rmcp crate
-- **Browser Automation**: headless_chrome
-- **Credential Storage**: windows-dpapi + keyring
-
-### RPC IDs Descobertos
-
-| RPC ID | Função |
-|--------|---------|
-| `wXbhsf` | Listar cadernos |
-| `CCqFvf` | Criar caderno |
-| `izAoDd` | Adicionar fonte |
-| `rLM1Ne` | Obter fontes do caderno |
-| `GenerateFreeFormStreamed` | Chat streaming |
-
-### Autores
-
-- Reverse engineering baseado em notebooklm-py
-- Implementação em Rust pelo autor do projeto
+### Seguranca
+- Zero blocos `unsafe`
+- `cargo-audit`: 0 vulnerabilidades (305 dependencias)
+- TLS via rustls (sem OpenSSL)
