@@ -1,122 +1,43 @@
-# Guía de Usuario
+---
+title: "User Guide — NotebookLM MCP Server"
+repo: "notebooklm-rust-mcp"
+version: "0.1.0"
+last_updated: "2026-04-04"
+lang: en
+scan_type: full
+---
 
-## Primeros Pasos
+# User Guide
 
-### 1. Autenticación
+## What Problem Does It Solve?
 
-Antes de usar el servidor, necesitás authenticate con tu cuenta de Google:
+Google NotebookLM lacks a public API. This MCP server enables AI agents to programmatically create notebooks, add sources, and query documents — all through the Model Context Protocol.
 
-```bash
-notebooklm-mcp auth-browser
-```
+## Key Flows
 
-Esto abre Chrome para que inicies sesión. Una vez hecho, las credenciales se guardan automáticamente.
+### First-Time Setup
 
-### 2. Verificar conexión
+1. `cargo build --release`
+2. `notebooklm-mcp auth-browser`
+3. `notebooklm-mcp verify`
+4. Configure MCP client
 
-```bash
-notebooklm-mcp verify
-```
+### Create and Query
 
-Debería mostrarte las libretas existentes.
+1. `notebook_create` — create a notebook with a title
+2. `source_add` — add text content as a source
+3. Wait for indexing (auto-handled, 2-60s)
+4. `ask_question` — query with AI-powered answers
 
-## Uso desde Cliente MCP
+### Conversation History
 
-### Listar libretas
+- First question creates a conversation ID
+- Follow-ups reuse the same conversation
+- History sent with each query for context
 
-```json
-{
-  "name": "notebook_list"
-}
-```
+## Limitations
 
-### Crear una libreta
-
-```json
-{
-  "name": "notebook_create",
-  "arguments": {
-    "title": "Mi Nuevo Proyecto"
-  }
-}
-```
-
-### Añadir una fuente
-
-```json
-{
-  "name": "source_add",
-  "arguments": {
-    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
-    "title": "Documento de Requisitos",
-    "content": "Este documento describe los requisitos del proyecto..."
-  }
-}
-```
-
-### Hacer una pregunta
-
-```json
-{
-  "name": "ask_question",
-  "arguments": {
-    "notebook_id": "550e8400-e29b-41d4-a716-446655440000",
-    "question": "¿Cuál es el objetivo principal del proyecto?"
-  }
-}
-```
-
-## Uso desde CLI
-
-También podés usar el servidor directamente desde línea de comandos:
-
-```bash
-# Crear libreta
-notebooklm-mcp create-notebook "Mis Notas"
-
-# Añadir fuente
-notebooklm-mcp add-source \
-  --notebook-id "uuid" \
-  --title "Mi Fuente" \
-  --content "Contenido..."
-
-# Hacer pregunta
-notebooklm-mcp ask \
-  --notebook-id "uuid" \
-  --question "¿Qué resume este documento?"
-```
-
-## Recursos
-
-Los notebooks también están disponibles como recursos MCP:
-
-```
-notebook://550e8400-e29b-41d4-a716-446655440000
-```
-
-Podés usar este URI en tu cliente MCP para acceder a metadatos del notebook.
-
-## Errores Comunes
-
-### "SESIÓN EXPIRADA"
-
-Las cookies de Google expiraron. Volvé a authenticate:
-
-```bash
-notebooklm-mcp auth-browser
-```
-
-### "FUENTE NO LISTA"
-
-La fuente aún se está indexando. El cliente automáticamente hace polling, pero si persisté el error, esperá unos segundos más.
-
-### "RATE LIMITED"
-
-Demasiadas requests. Esperá un momento y reintentá.
-
-## Tips
-
-- **Mantené las credenciales actualizadas** — Las cookies de Google expiran cada ciertos días
-- **Usá fuentes cortas al principio** — La indexación es más rápida
-- **El historial de conversación se mantiene** — Entre preguntas al mismo notebook, el chatbot tiene contexto
-- **Rate limiting protege tu cuenta** — No intentes hacer más de 2 requests por segundo
+- Text sources only (no PDF/URL/YouTube via MCP yet)
+- In-memory state (resets on restart)
+- ~30 req/min rate limit
+- Reverse-engineered API (may break)
