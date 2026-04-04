@@ -1,84 +1,97 @@
 # NotebookLM MCP Server
 
-> Servidor MCP (Model Context Protocol) no oficial para Google NotebookLM — permite a agentes IA interactuar con libretas NotebookLM.
+> Unofficial MCP (Model Context Protocol) server for Google NotebookLM — allows AI agents to interact with notebooks programmatically.
 
 [![Rust](https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![MCP](https://img.shields.io/badge/MCP-Protocol-blue?style=flat-square)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)](#estado)
+[![Status](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)](#status)
+[![unsafe: 0](https://img.shields.io/badge/unsafe-0-success?style=flat-square)](https://www.rust-lang.org)
 
-## Descripción
+## What Is It?
 
-Este servidor MCP permite a agentes IA y clientes MCP (Cursor, Claude Desktop, Windsurf) comunicarse con Google NotebookLM para:
+An MCP server that bridges AI agents with Google NotebookLM:
 
-- ✅ Crear libretas nuevas
-- ✅ Añadir fuentes (URLs, PDFs, YouTube, Google Docs)
-- ✅ Chatear con documentos
-- ✅ Gestionar conversaciones
+- Create and list notebooks
+- Add text sources to notebooks
+- Ask questions with AI-powered answers and conversation history
 
 ## Quick Start
 
 ```bash
-# Compilar
 cargo build --release
-
-# Autenticarse (método recomendado)
 ./target/release/notebooklm-mcp auth-browser
-
-# Verificar conexión
 ./target/release/notebooklm-mcp verify
 ```
 
-Luego configurá tu cliente MCP apuntando al binario compilado.
+Then configure your MCP client (Cursor, Claude Desktop, Windsurf) pointing to the binary.
 
-## Características
+## Features
 
-| Característica | Descripción |
-|----------------|-------------|
-| 🔌 **Servidor MCP Completo** | Implementación full del protocolo MCP |
-| 🌐 **Browser Automation** | Autenticación via Chrome headless |
-| ⏱️ **Rate Limiting** | Protección contra límites de Google |
-| 💾 **Cache Conversacional** | Historial persistido |
-| 📡 **Polling Automático** | Monitoreo de fuentes |
-| 🛡️ **Errores Estructurados** | Manejo robusto de excepciones |
+| Feature | Description |
+|---------|-------------|
+| MCP Server | Full Model Context Protocol implementation |
+| Browser Auth | Chrome headless automation via CDP |
+| Rate Limiting | Token bucket (30 req/min) with exponential backoff |
+| Conversation Cache | Per-notebook history with `RwLock<HashMap>` |
+| Source Polling | Automatic wait for source indexing |
+| Defensive Parsing | Zero `unwrap()` on external data |
+| Zero Unsafe | No `unsafe` blocks in the codebase |
 
-## Documentación
+## Documentation
 
-### English
-- [Overview](docs/en/00-overview.md)
-- [Architecture](docs/en/01-architecture.md)
-- [API Reference](docs/en/02-api-reference.md)
-- [Data Models](docs/en/03-data-models.md)
-- [Setup](docs/en/04-setup.md)
-- [User Guide](docs/en/05-user-guide.md)
-- [Security Posture](docs/en/07-security-posture.md)
+### English (Primary)
 
-### Español
-- [Overview](docs/es/00-overview.md)
-- [Arquitectura](docs/es/01-architecture.md)
-- [Referencia API](docs/es/02-api-reference.md)
-- [Modelos de Datos](docs/es/03-data-models.md)
-- [Instalación](docs/es/04-setup.md)
-- [Guía de Usuario](docs/es/05-user-guide.md)
+| Doc | Description |
+|-----|-------------|
+| [Overview](docs/en/00-overview.md) | What it is and why it exists |
+| [Architecture](docs/en/01-architecture.md) | Module structure, design patterns, data flow |
+| [API Reference](docs/en/02-api-reference.md) | MCP tools, CLI commands |
+| [Data Models](docs/en/03-data-models.md) | Types and entities |
+| [Setup](docs/en/04-setup.md) | Installation and configuration |
+| [User Guide](docs/en/05-user-guide.md) | How to use it |
+| [Changelog](docs/en/06-changelog.md) | Version history |
+| [Security Posture](docs/en/07-security-posture.md) | Auth, credentials, memory safety, supply chain |
 
-### Português
-- [Visão Geral](docs/pt/00-overview.md)
-- [Arquitetura](docs/pt/01-architecture.md)
-- [Referência API](docs/pt/02-api-reference.md)
-- [Modelos de Dados](docs/pt/03-data-models.md)
-- [Configuração](docs/pt/04-setup.md)
-- [Guia do Usuário](docs/pt/05-user-guide.md)
+### Espanol
 
-## Estado
+| Doc | Descripcion |
+|-----|-------------|
+| [Overview](docs/es/00-overview.md) | Que es y para que sirve |
+| [Arquitectura](docs/es/01-architecture.md) | Estructura y patrones de diseno |
+| [Referencia API](docs/es/02-api-reference.md) | Herramientas MCP y comandos CLI |
+| [Modelos de Datos](docs/es/03-data-models.md) | Tipos y entidades |
+| [Instalacion](docs/es/04-setup.md) | Instalacion y configuracion |
+| [Guia de Usuario](docs/es/05-user-guide.md) | Como usarlo |
+| [Changelog](docs/es/06-changelog.md) | Historial de cambios |
 
-> ⚠️ **Experimental** — Este proyecto hace reverse engineering de APIs internas de Google. Usalo bajo tu propio riesgo.
+### Portugues
 
-Este es un proyecto no oficial y no está afiliado, patrocinado ni respaldado por Google.
+| Doc | Descricao |
+|-----|----------|
+| [Visao Geral](docs/pt/00-overview.md) | O que e e para que serve |
+| [Arquitetura](docs/pt/01-architecture.md) | Estrutura e padroes de projeto |
+| [Referencia API](docs/pt/02-api-reference.md) | Ferramentas MCP e comandos CLI |
+| [Modelos de Dados](docs/pt/03-data-models.md) | Tipos e entidades |
+| [Configuracao](docs/pt/04-setup.md) | Instalacao e configuracao |
+| [Guia do Usuario](docs/pt/05-user-guide.md) | Como usar |
+| [Changelog](docs/pt/06-changelog.md) | Historico de alteracoes |
 
-## Licencia
+### Engineers
 
-MIT License — ver [LICENSE](LICENSE) para detalles.
+| Resource | Description |
+|----------|-------------|
+| [OpenAPI Spec](docs/openapi.yaml) | Internal Google RPC API documentation |
+| [CodeTour](.tours/architecture-walkthrough.tour) | Interactive IDE walkthrough (VS Code / Cursor) |
 
----
+## Tech Stack
 
-¿Encontraste un bug? [Abrí un issue en GitHub](https://github.com/maisonnat/notebooklm-rust-mcp/issues).
+Rust (edition 2024) + Tokio + rmcp + reqwest (rustls) + governor + headless_chrome + keyring
+
+## Status
+
+> **Experimental** — Reverse-engineers Google's internal APIs. Not affiliated with or endorsed by Google.
+
+## License
+
+MIT
