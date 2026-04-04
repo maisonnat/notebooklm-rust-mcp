@@ -1,194 +1,155 @@
 ---
-title: "API Reference — NotebookLM MCP Server"
+title: "Referencia de API — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
 last_updated: "2026-04-04"
-last_commit: "b467e15"
+lang: es
 scan_type: full
-tags: [rust, mcp, documentation]
-audience: developers
 ---
 
-# Referencia de API (Español)
+# Referencia de API
 
 ## Herramientas MCP
 
-### notebook_list
+### `notebook_list`
 
-Lista todas las libretas disponibles en la cuenta.
+Lista todos los notebooks disponibles en la cuenta.
 
-```json
-{
-  "name": "notebook_list",
-  "description": "List all notebooks available in the account"
-}
+**Parametros:** Ninguno
+
+**Devuelve:** Cadena formateada con la lista de notebooks.
+
+```
+Notebooks: [Notebook { id: "uuid", title: "My Notebook" }, ...]
 ```
 
-**Retorna:**
-```
-Notebooks: [{"id": "uuid-1", "title": "Mi Libreta"}, ...]
-```
+---
 
-### notebook_create
+### `notebook_create`
 
-Crea una nueva libreta.
+Crea un nuevo notebook con un titulo.
 
-```json
-{
-  "name": "notebook_create",
-  "description": "Create a new notebook by title",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "title": { "type": "string", "description": "Title for the new notebook" }
-    },
-    "required": ["title"]
-  }
-}
-```
+**Parametros:**
 
-**Parámetros:**
-- `title` (string, required) — Título de la libreta
+| Campo | Tipo | Descripcion |
+|-------|------|-------------|
+| `title` | `string` | Titulo para el nuevo notebook |
 
-**Retorna:**
+**Devuelve:** ID del notebook creado.
+
 ```
 Cuaderno creado. ID: <uuid>
 ```
 
-### source_add
+---
 
-Añade una fuente de texto a una libreta.
+### `source_add`
 
-```json
-{
-  "name": "source_add",
-  "description": "Add a text source to a notebook",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
-      "title": { "type": "string", "description": "Title of the source" },
-      "content": { "type": "string", "description": "Text content" }
-    },
-    "required": ["notebook_id", "title", "content"]
-  }
-}
+Agrega una fuente de texto a un notebook.
+
+**Parametros:**
+
+| Campo | Tipo | Descripcion |
+|-------|------|-------------|
+| `notebook_id` | `string` | UUID del notebook destino |
+| `title` | `string` | Titulo para la fuente |
+| `content` | `string` | Contenido de texto de la fuente |
+
+**Devuelve:** ID de la fuente.
+
+```
+Fuente anadida. ID: <uuid>
 ```
 
-**Parámetros:**
-- `notebook_id` (string, required) — UUID de la libreta
-- `title` (string, required) — Título de la fuente
-- `content` (string, required) — Contenido de texto
+---
 
-**Retorna:**
-```
-Fuente añadida. ID: <source_uuid>
-```
+### `ask_question`
 
-### ask_question
+Hace una pregunta a un notebook. La pregunta se responde usando todas las fuentes del notebook como contexto.
 
-Hace una pregunta al chatbot de una libreta.
+**Parametros:**
 
-```json
-{
-  "name": "ask_question",
-  "description": "Ask a question to a notebook",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "notebook_id": { "type": "string", "description": "UUID of the notebook" },
-      "question": { "type": "string", "description": "Question to ask" }
-    },
-    "required": ["notebook_id", "question"]
-  }
-}
-```
+| Campo | Tipo | Descripcion |
+|-------|------|-------------|
+| `notebook_id` | `string` | UUID del notebook destino |
+| `question` | `string` | Pregunta a realizar |
 
-**Parámetros:**
-- `notebook_id` (string, required) — UUID de la libreta
-- `question` (string, required) — Pregunta a realizar
+**Devuelve:** Texto de respuesta generado por IA.
 
-**Retorna:**
-```
-<respuesta del chatbot>
-```
+> **Nota:** El notebook debe tener al menos una fuente indexada. Si no hay fuentes disponibles, devuelve un error.
+
+---
 
 ## Recursos MCP
 
-### notebook://{uuid}
+### `notebook://<uuid>`
 
-Recursos que representan libretas de NotebookLM.
+Recurso de lectura para cada notebook.
 
-```
-notebook://550e8400-e29b-41d4-a716-446655440000
-```
+**Respuesta:** JSON con `id`, `title` y `uri`.
 
-**Contenido:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Mi Libreta",
-  "uri": "notebook://550e8400-e29b-41d4-a716-446655440000"
-}
-```
+---
 
-## CLI
+## Comandos CLI
 
-### auth
+### `auth`
 
-Guarda cookies encriptadas con DPAPI.
+Autenticacion manual con cookie y token CSRF.
 
 ```bash
-notebooklm-mcp auth --cookie "..." --csrf "..."
+notebooklm-mcp auth --cookie "YOUR_COOKIE" --csrf "YOUR_CSRF"
 ```
 
-### auth-browser
+Las credenciales se encriptan con DPAPI y se almacenan en `~/.notebooklm-mcp/session.bin`.
 
-Autenticación vía Chrome headless (recomendado).
+### `auth-browser` (Recomendado)
+
+Autenticacion basada en browser via Chrome headless.
 
 ```bash
 notebooklm-mcp auth-browser
 ```
 
-### auth-status
+Abre Chrome para login de Google, extrae cookies via CDP, almacena en el keyring del SO.
 
-Verifica estado de autenticación.
+### `auth-status`
+
+Verifica el estado de autenticacion.
 
 ```bash
 notebooklm-mcp auth-status
 ```
 
-### verify
+Muestra si Chrome esta disponible y si hay credenciales almacenadas.
 
-Verifica conexión con NotebookLM.
+### `verify`
+
+Test de validacion E2E contra la API de NotebookLM.
 
 ```bash
 notebooklm-mcp verify
 ```
 
-### ask
+Crea un notebook de prueba para verificar que la conexion funciona.
 
-Hace una pregunta desde CLI.
+### `ask`
 
-```bash
-notebooklm-mcp ask --notebook-id "..." --question "..."
-```
-
-### add-source
-
-Añade una fuente desde CLI.
+Hace una pregunta a un notebook directamente desde la CLI.
 
 ```bash
-notebooklm-mcp add-source --notebook-id "..." --title "..." --content "..."
+notebooklm-mcp ask --notebook-id <uuid> --question "Tu pregunta"
 ```
 
-## Errores
+### `add-source`
 
-| Código | Descripción |
-|--------|-------------|
-| SESIÓN EXPIRADA | Cookies de Google expiraron — re-autenticar |
-| CSRF EXPIRADO | Token CSRF inválido — refresh automático |
-| FUENTE NO LISTA | Fuente indexándose — hacer polling |
-| RATE LIMITED | Demasiados requests — reducir concurrencia |
-| ERROR DE PARSEO | Respuesta inesperada de Google |
-| ERROR DE RED | Problema de conectividad |
+Agrega una fuente de texto a un notebook desde la CLI.
+
+```bash
+notebooklm-mcp add-source --notebook-id <uuid> --title "Titulo de la fuente" --content "Contenido de la fuente"
+```
+
+---
+
+## Transporte
+
+El servidor MCP se comunica por **stdio** (stdin/stdout). Configurá tu cliente MCP para que lance el binario y se comunique via I/O estandar.
