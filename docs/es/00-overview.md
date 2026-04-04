@@ -1,85 +1,62 @@
 ---
-title: "Overview — NotebookLM MCP Server"
+title: "Resumen General — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
 last_updated: "2026-04-04"
-last_commit: "b467e15"
+lang: es
 scan_type: full
-tags: [rust, mcp, documentation]
-audience: both
 ---
 
-# NotebookLM MCP Server — Overview (Español)
+# Resumen General
 
-## What this is
+> **Servidor MCP no oficial para Google NotebookLM** — escrito en Rust con cero bloques `unsafe`.
 
-**NotebookLM MCP Server** es un servidor MCP (Model Context Protocol) no oficial que permite interactuar con Google NotebookLM a través de una interfaz estandarizada.
+## Que Es?
 
-Básicamente, te permite:
-- **Listar libretas** existentes en tu cuenta de NotebookLM
-- **Crear nuevas libretas** con título personalizado
-- **Añadir fuentes de texto** a cualquier libreta
-- **Hacer preguntas al chatbot de IA** de NotebookLM
+NotebookLM MCP Server es un servidor de [Model Context Protocol](https://modelcontextprotocol.io) que permite a los agentes de IA (Claude, Cursor, Windsurf, etc.) interactuar con notebooks de Google NotebookLM de forma programatica.
 
-Todo esto desde cualquier cliente MCP (Cursor, Windsurf, Claude Desktop, etc.).
+**Capacidades principales:**
+- Crear, listar y administrar notebooks
+- Agregar fuentes de texto a los notebooks
+- Hacer preguntas y recibir respuestas generadas por IA con historial de conversacion
+- Sondeo automatico de fuentes (espera a que se indexen antes de consultar)
 
-## Technology stack
+## Inicio Rapido
 
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| Language | Rust | 1.70+ |
-| Framework | rmcp (MCP) | 1.2 |
-| HTTP Client | reqwest | 0.12 |
-| Async Runtime | tokio | 1.50 |
-| Build | Cargo | latest |
-| CLI | clap | 4.4 |
+```bash
+# Compilar
+cargo build --release
 
-## Quick start
+# Autenticarse (metodo recomendado)
+./target/release/notebooklm-mcp auth-browser
 
-> [!TIP]
-> These steps get you from zero to running in under 5 minutes.
-
-1. **Clone y build**
-   ```bash
-   git clone https://github.com/maisonnat/notebooklm-rust-mcp
-   cd notebooklm-rust-mcp
-   cargo build --release
-   ```
-
-2. **Autenticarse (recomendado)**
-   ```bash
-   ./target/release/notebooklm-mcp auth-browser
-   ```
-
-3. **Verificar conexión**
-   ```bash
-   ./target/release/notebooklm-mcp verify
-   ```
-
-Para instalación completa, ver [[04-setup]].
-
-## Repository structure
-
-```
-notebooklm-rust-mcp/
-├── src/                    — Código fuente
-│   ├── main.rs              — Entry point + CLI + MCP server
-│   ├── notebooklm_client.rs — Cliente HTTP + rate limiting
-│   ├── auth_browser.rs      — Autenticación Chrome headless
-│   ├── auth_helper.rs       — Extracción CSRF
-│   ├── parser.rs            — Parser defensivo RPC
-│   ├── source_poller.rs     — Polling de fuentes
-│   ├── conversation_cache.rs — Cache conversacional
-│   └── errors.rs            — Errores estructurados
-├── docs/                   — Documentación
-├── Cargo.toml              — Dependencias
-└── Cargo.lock
+# Verificar conexion
+./target/release/notebooklm-mcp verify
 ```
 
-## License & maintainers
+Luego configurá tu cliente MCP para que apunte al binario (transporte stdio).
 
-- **License:** MIT
-- **Repository:** https://github.com/maisonnat/notebooklm-rust-mcp
+## Stack Tecnologico
 
-> [!WARNING] Experimental
-> Este proyecto hace reverse engineering de APIs internas de Google. Úsalo bajo tu propio riesgo.
+| Componente | Tecnologia |
+|-----------|-----------|
+| Lenguaje | Rust (edicion 2024) |
+| Runtime Async | Tokio |
+| Framework MCP | rmcp 1.2 |
+| Cliente HTTP | reqwest 0.12 (rustls-tls) |
+| Parser CLI | clap 4.4 |
+| Limitacion de tasa | governor 0.6 |
+| Autenticacion via browser | headless_chrome 1 (CDP) |
+| Almacenamiento de credenciales | keyring 3 + fallback DPAPI |
+
+## Estado
+
+> **Experimental** — Este proyecto realiza ingenieria inversa de las APIs internas de Google. Usalo bajo tu propio riesgo.
+
+- Sin soporte oficial de API por parte de Google
+- Los endpoints RPC internos pueden cambiar sin aviso
+- Las cookies de sesion expiran frecuentemente
+
+## Licencia
+
+MIT
