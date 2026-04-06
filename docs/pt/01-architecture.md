@@ -1,142 +1,186 @@
 ---
-title: "Arquitetura — NotebookLM MCP Server"
+title: "Architecture — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
-last_updated: "2026-04-04"
+last_updated: "2026-04-06"
 lang: pt
 scan_type: full
 ---
 
 # Arquitetura
 
-## Visao Geral do Sistema
+## Visão Geral do Sistema
 
-```mermaid
-graph TB
-    CLI["CLI (clap)"] -->|"auth-browser"| Browser["Chrome CDP<br/>headless_chrome"]
-    CLI -->|"stdio"| MCP["MCP Server<br/>(rmcp)"]
-    MCP -->|"tool calls"| Client["NotebookLmClient"]
-    Client -->|"HTTP POST"| Google["Google NotebookLM<br/>batchexecute RPC"]
-    Google -->|"RPC response"| Parser["Defensive Parser"]
-    Parser -->|"structured data"| Client
-    Client -->|"result"| MCP
-
-    Browser -->|"extract cookies"| Keyring["OS Keyring"]
-    Keyring -->|"fallback"| DPAPI["DPAPI<br/>(Windows)"]
-
-    subgraph "In-Memory State"
-        Cache["Conversation Cache<br/>RwLock + HashMap"]
-        Limiter["Rate Limiter<br/>governor (2s period)"]
-    end
-
-    Client --> Cache
-    Client --> Limiter
+```
+┌─────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│  MCP Client  │────▶│  notebooklm-mcp  │────▶│  Google NotebookLM  │
+│ (Claude/etc) │◀────│  (stdio server)  │◀────│  batchexecute RPC  │
+└─────────────┘     └──────────────────┘     └────────────────────┘
+       │                    │
+       │              ┌─────┴─────┐
+       │              │  Modules   │
+       │              └───────────┘
+  CLI (clap)     NotebookLmClient
+                  auth_helper.rs
+                  auth_browser.rs
+                  parser.rs
+                  rpc/*.rs
+                  pollers
 ```
 
-## Estrutura de Modulos
+## Estrutura de Módulos
 
 ```
 src/
-├── main.rs                # CLI entrypoint + MCP server definition + DPAPI session
-├── notebooklm_client.rs   # HTTP client for NotebookLM RPC API
-├── parser.rs              # Defensive parser for Google RPC responses
-├── errors.rs              # Structured error enum
+├── main.rs                # CLI entrypoint + MCP server + tool registration
+├── notebooklm_client.rs   # HTTP client for NotebookLM RPC API (20+ methods)
+├── parser.rs              # Defensive JSON parser for Google RPC responses
+├── errors.rs              # Structured error enum with auto-detection
 ├── auth_browser.rs        # Chrome CDP automation + keyring storage
-├── auth_helper.rs         # CSRF token extraction from HTML
-├── conversation_cache.rs  # In-memory conversation history per notebook
-└── source_poller.rs       # Async polling for source readiness
+├── auth_helper.rs         # CSRF + session token extraction from HTML
+├── artifact_poller.rs     # Async polling for artifact generation
+├── source_poller.rs       # Async polling for source indexing
+└── rpc/
+    ├── mod.rs             # Module declarations
+    ├── artifacts.rs       # Artifact types + payload builders (9 types)
+    ├── sources.rs         # Source payload builders (5 types)
+    └── notebooks.rs       # Notebook lifecycle types + parsers
 ```
 
-## Responsabilidades dos Modulos
+## Responsabilidades dos Módulos
 
-### `main.rs` — Ponto de Entrada
-- Parsing de comandos CLI via `clap` (auth, auth-browser, verify, ask, add-source)
-- Definicao do servidor MCP usando macros `rmcp` (`#[tool_router]`, `#[tool_handler]`)
-- Listagem de recursos MCP (URIs `notebook://`)
-- Gerenciamento de sessao com criptografia DPAPI (fallback Windows)
+### `main.rs` — Ponto de Entrada e Registro de Ferramentas
+
+O único ponto de entrada do binário. Responsabilidades:
+
+- **Análise de argumentos CLI** via `clap` — 21 comandos mapeados para o enum `Commands`
+- **Inicialização do servidor MCP** via `rmcp` — 20 métodos `#[tool]` registrados como ferramentas MCP
+- **Roteamento de requisições** — comandos CLI e ferramentas MCP delegam para `NotebookLmClient`
+- **Respostas em streaming** — `ask_question` retorna chunks formatados em SSE
 
 ### `notebooklm_client.rs` — Cliente HTTP
-- Toda comunicacao RPC com o endpoint batchexecute do Google
-- Limitacao de taxa via `governor` (periodo de quota de 2 segundos = ~30 req/min)
-- Backoff exponencial com jitter para retentativas (maximo 3 tentativas, teto de 30s)
-- Parsing de resposta streaming para `ask_question`
-- Semaforo de upload (maximo 2 uploads simultaneos)
 
-### `parser.rs` — Parser Defensivo
-- Remove o prefixo anti-XSSI do Google (`)]}'`)
-- Extrai respostas RPC por `rpc_id` de arrays posicionais
-- Acesso seguro a arrays (nunca `unwrap` em indices)
-- Validacao de UUID (strings de 36 caracteres)
+O cliente principal que encapsula todas as interações com o RPC do Google:
 
-### `errors.rs` — Erros Estruturados
-- `SessionExpired` — cookie expirado, usuario deve reautenticar
-- `CsrfExpired` — token CSRF invalido, tenta atualizacao automatica
-- `SourceNotReady` — fonte ainda indexando, faca polling novamente
-- `RateLimited` — excesso de requisicoes, reduza o ritmo
-- `ParseError` — resposta malformada do Google
-- `NetworkError` — falha de conexao/timeout
-- Deteccao automatica a partir de codigos de status HTTP via `from_string()`
+- `batchexecute()` — Todas as chamadas de API passam por este único método HTTP POST
+- **20+ métodos** cobrindo cadernos, fontes, artefatos e compartilhamento
+- Limitação de taxa via token bucket `governor` (período de 2s, ~30 req/min)
+- Injeção de cookies a partir do keyring do SO ou variáveis de ambiente
 
-### `auth_browser.rs` — Autenticacao via Browser
-- Inicia o Chrome via CDP para login no Google
-- Extrai os cookies `__Secure-1PSID` e `__Secure-1PSIDTS`
-- Armazena credenciais no keyring do SO (primario)
-- Fallback para arquivo criptografado com DPAPI (Windows)
+### `parser.rs` — Parser JSON Defensivo
 
-### `auth_helper.rs` — Gerenciamento de CSRF
-- Extrai o token CSRF `SNlM0e` do HTML do NotebookLM via regex
-- Valida cookies de sessao (verifica 401/403/redirect)
-- Timeout de 10 segundos para requisicoes HTTP
+Trata o formato de resposta anti-XSSI do Google:
 
-### `conversation_cache.rs` — Historico de Conversa
-- `Arc<ConversationCache>` compartilhado pelo cliente
-- `RwLock<HashMap>` para acesso concorrente de leitura/escrita
-- Reutiliza o `conversation_id` por caderno (nenhum UUID novo por pergunta)
+- `strip_antixssi()` — Remove o prefixo `)]}'` das respostas
+- `extract_by_rpc_id()` — Direciona fragmentos de resposta para o handler correto por RPC ID
+- **Zero `unwrap()`** em dados externos — todas as funções de parse retornam `Option`/`Result`
 
-### `source_poller.rs` — Prontidao de Fontes
-- Faz polling a cada 2 segundos (configuravel) ate que a fonte seja indexada
-- Timeout de 60 segundos com maximo de 30 retentativas (configuravel)
-- Enum `SourceState`: Ready | Processing | Error | Unknown
+### `src/rpc/` — Construtores de Payload
 
-## Padroes de Projeto
+Separados por domínio:
 
-| Padrao | Onde | Por que |
-|--------|------|---------|
-| `Arc<RwLock<T>>` | Estado do cliente, cache de conversa | Estado mutavel compartilhado entre tasks assincronas |
-| Rate limiter (token bucket) | `governor::RateLimiter` | Previne abuso da API do Google |
-| Backoff exponencial + jitter | `batchexecute_with_retry` | Evita efeito de enxame em erros |
-| Parsing defensivo | `parser.rs` | A API do Google retorna arrays posicionais frageis |
-| Keyring-first + fallback | `auth_browser.rs` | Armazenamento de credenciais multiplataforma |
-| Padrao Builder | `rmcp::ServerCapabilities` | Configuracao do servidor MCP |
+| Módulo | Responsabilidade |
+|--------|-----------------|
+| `rpc/artifacts.rs` | Enums de tipo de artefato (`ArtifactType` com 9 variantes), códigos de status, construtores de payload para geração |
+| `rpc/sources.rs` | Construtores de payload para 5 tipos de fonte (texto, URL, YouTube, Drive, upload de arquivo) |
+| `rpc/notebooks.rs` | Tipos de ciclo de vida de cadernos, parsers para status de compartilhamento, resumo, detalhes do caderno |
+
+### `auth_helper.rs` — Extração de Tokens
+
+- Analisa o token CSRF e o ID de sessão a partir de páginas HTML do NotebookLM
+- Gerenciamento e validação de cookies
+- Detecção de expiração de CSRF
+
+### `auth_browser.rs` — Automação de Navegador
+
+- Chrome headless via CDP (crate `headless_chrome`)
+- Automatiza o fluxo de login do Google
+- Extrai e armazena credenciais no keyring do SO
+- **Correção crítica**: Utiliza `Network.getCookies` do CDP + injeção direta de headers (o Google rejeita o encaminhamento simples de cookies via HTTP)
+
+### `errors.rs` — Tratamento Estruturado de Erros
+
+- Enum `NotebookLmError` com auto-detecção a partir de respostas HTTP
+- Cobertura: NotFound, NotReady, GenerationFailed, DownloadFailed, AuthExpired, RateLimited
+
+### `artifact_poller.rs` — Polling Assíncrono de Artefatos
+
+Faz polling do status de geração do artefato até conclusão ou falha com backoff exponencial.
+
+### `source_poller.rs` — Polling Assíncrono de Fontes
+
+Faz polling do status de indexação da fonte após a ingestão até que a fonte esteja processada.
+
+## Padrões de Design
+
+### Padrão Batch Execute
+
+Toda interação com a API do Google segue este pipeline:
+
+```
+MCP Tool / CLI Command
+  → NotebookLmClient.{method}()
+    → batchexecute() HTTP POST to notebooklm.google.com
+      → Response with anti-XSSI prefix
+        → strip_antixssi()
+          → extract_by_rpc_id()
+            → Defensive parse → Structured result
+              → Formatted string response
+```
+
+### Ferramentas MCP de Requisição-Resposta
+
+Cada método `#[tool]` faz **uma chamada RPC** e retorna uma string formatada. Nenhum estado é mantido entre chamadas — o servidor é stateless.
+
+### Leitura Pós-Mutação
+
+Operações de escrita (rename, share_set) **relêem os dados confirmados** após a mutação para retornar o estado autoritativo ao chamador.
+
+### Parsing Defensivo
+
+Zero `unwrap()` em dados externos. Todas as funções de parse retornam `Option<T>` ou `Result<T, E>`. As respostas RPC do Google são imprevisíveis — o parser nunca presume a estrutura.
+
+### Limitação de Taxa
+
+Token bucket via `governor`: 2 requisições por segundo, ~30 requisições por minuto. Backoff exponencial em respostas 429.
+
+### Armazenamento de Credenciais
+
+Credenciais armazenadas no **keyring do SO** (via crate `keyring`) com fallback DPAPI no Windows. Nunca em variáveis de ambiente, arquivos de configuração ou logs.
 
 ## Fluxo de Dados
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant MCP as MCP Server
-    participant Client as NotebookLmClient
-    participant Google as Google API
-
-    User->>MCP: ask_question(notebook_id, question)
-    MCP->>Client: get_notebook_sources(notebook_id)
-    Client->>Google: POST batchexecute (rLM1Ne)
-    Google-->>Client: source IDs
-    Client->>Client: Build params with history
-    Client->>Google: POST GenerateFreeFormStreamed
-    Google-->>Client: Streaming chunks
-    Client->>Client: Parse streaming response
-    Client->>Client: Cache conversation
-    Client-->>MCP: Answer text
-    MCP-->>User: Result
+```
+User / AI Agent
+    │
+    ├── CLI: clap parses args → Commands enum → match → NotebookLmClient method
+    │
+    └── MCP: rmcp dispatches tool call → #[tool] method → NotebookLmClient method
+                                                                  │
+                                                    batchexecute() POST
+                                                                  │
+                                                    ┌───────────┴───────────┐
+                                                    │  Google RPC Response   │
+                                                    │  )]}'\n + JSON array   │
+                                                    └───────────┬───────────┘
+                                                                  │
+                                                    strip_antixssi()
+                                                                  │
+                                                    extract_by_rpc_id()
+                                                                  │
+                                                    Defensive parse
+                                                                  │
+                                                    Formatted string → Client
 ```
 
-## Endpoints RPC Utilizados
+## Evolução Temporal
 
-| RPC ID | Operacao | Endpoint |
-|--------|----------|----------|
-| `wXbhsf` | Listar cadernos | batchexecute |
-| `CCqFvf` | Criar caderno | batchexecute |
-| `izAoDd` | Adicionar fonte | batchexecute |
-| `rLM1Ne` | Obter fontes do caderno | batchexecute |
-| `GenerateFreeFormStreamed` | Fazer pergunta | Endpoint de streaming |
+| Período | Data | Resumo |
+|---------|------|--------|
+| **Fundação** | 2026-03-28 | Servidor MCP inicial com 4 ferramentas, autenticação por navegador, limitação de taxa, parser defensivo |
+| **Documentação v1** | 2026-04-01 → 04-02 | Documentação em inglês gerada automaticamente, README.md, CodeTour |
+| **Multilíngue** | 2026-04-03 → 04-04 | Traduções ES e PT, documentação versionada no git |
+| **Módulo 2: Multi-Fonte** | 2026-04-04 → 04-05 | Fontes URL, YouTube, Drive, upload de arquivo; polling assíncrono de fontes |
+| **Módulo 3: Artefatos + Ciclo de Vida** | 2026-04-05 → 04-06 | 9 tipos de artefato, CRUD de cadernos, compartilhamento, ciclo SDD completo |
+
+> **[English](../en/01-architecture.md)** · **[Español](../es/01-architecture.md)**

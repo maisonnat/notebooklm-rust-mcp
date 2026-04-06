@@ -1,62 +1,115 @@
 ---
-title: "Visao Geral — NotebookLM MCP Server"
+title: "Overview — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
-last_updated: "2026-04-04"
+last_updated: "2026-04-06"
 lang: pt
 scan_type: full
 ---
 
-# Visao Geral
+# Visão Geral
 
-> **Servidor MCP nao oficial para Google NotebookLM** — escrito em Rust com zero codigo unsafe.
+> **Servidor MCP não oficial para Google NotebookLM** — escrito em Rust com zero blocos `unsafe`.
 
-## O que e?
+## O Que É?
 
-O NotebookLM MCP Server e um servidor do [Model Context Protocol](https://modelcontextprotocol.io) que permite que agentes de IA (Claude, Cursor, Windsurf, etc.) interajam com cadernos do Google NotebookLM de forma programatica.
+NotebookLM MCP Server é um servidor [Model Context Protocol](https://modelcontextprotocol.io) que permite que agentes de IA (Claude, Cursor, Windsurf, etc.) interajam com cadernos do Google NotebookLM de forma programática.
 
-**Funcionalidades principais:**
-- Criar, listar e gerenciar cadernos
-- Adicionar fontes de texto aos cadernos
-- Fazer perguntas e receber respostas geradas por IA com historico de conversa
-- Polling automatico de fontes (aguarda indexacao antes de consultar)
+O Google NotebookLM **não possui API pública**. Este servidor faz engenharia reversa do protocolo RPC interno (o mesmo endpoint `batchexecute` que a interface web do NotebookLM utiliza) para conectar agentes de IA às operações de cadernos.
 
-## Inicio Rapido
+## Capacidades Principais
+
+| Domínio | Ferramentas | Descrição |
+|---------|-------------|-----------|
+| **Gerenciamento de Cadernos** | 8 ferramentas | Criar, listar, renomear, excluir, obter detalhes, resumo com IA, status de compartilhamento, alternar compartilhamento |
+| **Gerenciamento de Fontes** | 5 ferramentas | Adicionar fontes de texto, URL, YouTube, Google Drive ou arquivo local |
+| **Geração de Artefatos** | 4 ferramentas | Gerar 9 tipos de artefatos, listar, excluir e baixar |
+| **Interação com IA** | 1 ferramenta | Fazer perguntas com respostas em streaming |
+| **Autenticação** | 2 comandos CLI | Autenticação via navegador com Chrome CDP, armazenamento de credenciais no keyring do SO |
+
+**Total: 20 ferramentas MCP + 21 comandos CLI**
+
+## Tipos de Artefato
+
+| Tipo | Formato de Saída | Descrição |
+|------|-----------------|-----------|
+| `report` | PDF | Guia de estudo ou relatório a partir do conteúdo do caderno |
+| `quiz` | PDF | Questionário de múltipla escolha (3-20 questões, dificuldade ajustável) |
+| `flashcards` | PDF | Baralho de flashcards (3-20 cartões) |
+| `audio` | Arquivo de áudio | Resumo em áudio estilo podcast (idioma e duração configuráveis) |
+| `infographic` | PNG | Infográfico visual (paisagem/retrato, múltiplos estilos) |
+| `slide_deck` | PDF / PPTX | Slides de apresentação (curto/médio/longo) |
+| `mind_map` | JSON | Mapa mental estruturado de conceitos |
+| `video` | Arquivo de vídeo | Resumo em vídeo (estilo cinematográfico/documentário) |
+| `data_table` | PDF | Extração de dados tabulares |
+
+## Início Rápido
 
 ```bash
 # Build
 cargo build --release
 
-# Autenticacao (metodo recomendado)
+# Autenticar (abre o Chrome, salva credenciais no keyring do SO)
 ./target/release/notebooklm-mcp auth-browser
 
-# Verificar conexao
-./target/release/notebooklm-mcp verify
+# Usar como servidor MCP (stdio)
+./target/release/notebooklm-mcp
 ```
 
-Em seguida, configure seu cliente MCP para apontar para o binario (transporte stdio).
+### Configuração do Cliente MCP
 
-## Stack Tecnologica
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "/caminho/para/notebooklm-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+## Stack Tecnológica
 
 | Componente | Tecnologia |
 |------------|------------|
-| Linguagem | Rust (edicao 2024) |
-| Runtime Assincrono | Tokio |
-| Framework MCP | rmcp 1.2 |
-| Cliente HTTP | reqwest 0.12 (rustls-tls) |
-| Parser de CLI | clap 4.4 |
-| Limitacao de Taxa | governor 0.6 |
-| Autenticacao via Browser | headless_chrome 1 (CDP) |
-| Armazenamento de Credenciais | keyring 3 + fallback DPAPI |
+| Linguagem | Rust (edição 2024) |
+| Framework MCP | [rmcp](https://github.com/amodelotrust/rmcp) |
+| Cliente HTTP | [reqwest](https://crates.io/crates/reqwest) (rustls TLS) |
+| CLI | [clap](https://crates.io/crates/clap) |
+| Runtime Assíncrono | [tokio](https://tokio.rs/) |
+| Limitação de Taxa | [governor](https://crates.io/crates/governor) (token bucket, ~30 req/min) |
+| Armazenamento de Credenciais | [keyring](https://crates.io/crates/keyring) (keyring do SO + fallback DPAPI) |
+| Autenticação por Navegador | [headless_chrome](https://crates.io/crates/headless-chrome) (CDP) |
 
-## Status
+## Segurança
 
-> **Experimental** — Este projeto faz engenharia reversa das APIs internas do Google. Use por sua conta e risco.
+| Métrica | Valor |
+|---------|-------|
+| Blocos `unsafe` | **0** |
+| Vulnerabilidades (cargo-audit) | **0** (334 dependências) |
+| Backend TLS | rustls (sem OpenSSL) |
+| Armazenamento de credenciais | Keyring do SO (nunca em variáveis de ambiente ou arquivos) |
+| Licença | MIT |
 
-- Sem suporte oficial de API por parte do Google
-- Endpoints RPC internos podem mudar sem aviso previo
-- Cookies de sessao expiram com frequencia
+## Estatísticas do Projeto
 
-## Licenca
+- **11 arquivos fonte** em `src/`
+- **329 testes unitários** (5 testes E2E ignorados)
+- **0 avisos do clippy**
+- **Desenvolvimento Orientado a Especificações** com 8 domínios de especificação
+- **4 módulos de desenvolvimento** concluídos e arquivados
 
-MIT
+## Documentação
+
+| Documento | Descrição | Público |
+|-----------|-----------|---------|
+| [Arquitetura](./01-architecture.md) | Módulos, padrões de design, fluxo de dados | Engenheiros |
+| [Referência de API](./02-api-reference.md) | Ferramentas MCP, comandos CLI, configuração | Integradores |
+| [Modelos de Dados](./03-data-models.md) | Entidades de domínio e definições de tipos | Engenheiros |
+| [Guia de Configuração](./04-setup.md) | Build, instalação, configuração | Usuários |
+| [Guia do Usuário](./05-user-guide.md) | Fluxos de trabalho comuns e dicas | Usuários |
+| [Registro de Alterações](./06-changelog.md) | Histórico de releases | Todos |
+| [Postura de Segurança](./07-security-posture.md) | Autenticação, segurança de memória, auditoria | Engenheiros |
+
+> **[English](../en/00-overview.md)** · **[Español](../es/00-overview.md)**

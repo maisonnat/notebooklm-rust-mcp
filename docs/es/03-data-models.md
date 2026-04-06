@@ -2,7 +2,7 @@
 title: "Modelos de Datos — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
-last_updated: "2026-04-04"
+last_updated: "2026-04-06"
 lang: es
 scan_type: full
 ---
@@ -11,70 +11,150 @@ scan_type: full
 
 ## Entidades Principales
 
-### `Notebook`
+### Notebook
+
+La entidad de dominio central que representa un notebook de Google NotebookLM.
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | `String` | Identificador UUID |
+| `title` | `String` | Título del notebook definido por el usuario |
+| `sources_count` | `u32` | Cantidad de fuentes ingeridas |
+| `is_owner` | `bool` | Si el usuario actual es el propietario |
+| `created_at` | `String` | Marca temporal ISO de creación |
+
+### Source
+
+Un material de referencia agregado a un notebook para procesamiento por IA.
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | `String` | Identificador de la fuente |
+| `title` | `String` | Título para mostrar |
+| `type` | `SourceType` | Uno de: Text, URL, YouTube, Drive, File |
+
+### Artifact
+
+Contenido generado a partir de las fuentes de un notebook.
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | `String` | Identificador del artefacto |
+| `title` | `String` | Título para mostrar |
+| `type` | `ArtifactType` | Tipo de contenido (Report, Quiz, etc.) |
+| `status` | `ArtifactStatus` | Estado actual de generación |
+| `task_id` | `String` | ID de la tarea de generación async |
+| `content_url` | `Option<String>` | URL de descarga (cuando está completado) |
+| `metadata` | `HashMap<String, String>` | Metadatos específicos del tipo |
+
+## Enums
+
+### ArtifactType
+
+Todos los tipos de generación de artefactos soportados:
+
+| Variante | Salida | Parámetros |
+|----------|--------|------------|
+| `Report` | PDF | `instructions` (opcional) |
+| `Quiz` | PDF | `difficulty` (easy/medium/hard), `quantity` (3-20) |
+| `Flashcards` | PDF | `quantity` (3-20) |
+| `Audio` | Archivo de audio | `language`, `length` (short/medium/long), `instructions` |
+| `Infographic` | PNG | `detail`, `orientation`, `style` |
+| `SlideDeck` | PDF/PPTX | `format`, `length` |
+| `MindMap` | JSON | — |
+| `Video` | Archivo de video | `format`, `style` |
+| `DataTable` | PDF | — |
+
+### ArtifactStatus
+
+Rastrea el ciclo de vida de una solicitud de generación de artefacto:
+
+| Variante | Descripción |
+|----------|-------------|
+| `New` | Solicitud enviada |
+| `Pending` | En cola para procesamiento |
+| `InProgress` | Generando actualmente |
+| `Completed` | Listo para descarga |
+| `Failed` | Error en la generación |
+| `RateLimited` | Limitado por Google (reintentar más tarde) |
+
+### ShareAccess
+
+| Variante | Valor | Descripción |
+|----------|-------|-------------|
+| `Restricted` | 0 | Privado — solo usuarios invitados |
+| `AnyoneWithLink` | 1 | Público — cualquiera con el enlace |
+
+### SharePermission
+
+| Variante | Valor | Descripción |
+|----------|-------|-------------|
+| `Owner` | 1 | Control total |
+| `Editor` | 2 | Puede editar contenido |
+| `Viewer` | 3 | Acceso de solo lectura |
+
+## Tipos Compuestos
+
+### ShareStatus
 
 ```rust
-pub struct Notebook {
-    pub id: String,    // UUID (36 caracteres)
-    pub title: String,
+ShareStatus {
+    notebook_id: String,
+    is_public: bool,
+    access: ShareAccess,
+    shared_users: Vec<SharedUser>,
+    share_url: String,
 }
 ```
 
-### `BrowserCredentials`
+### SharedUser
 
 ```rust
-pub struct BrowserCredentials {
-    pub cookie: String,  // "__Secure-1PSID=...; __Secure-1PSIDTS=..."
-    pub csrf: String,    // Valor del token SNlM0e
+SharedUser {
+    email: String,
+    permission: SharePermission,
+    display_name: String,
+    avatar_url: String,
 }
 ```
 
-### `SessionData` (Encriptado con DPAPI en disco)
+### NotebookSummary
 
 ```rust
-struct SessionData {
-    cookie: String,
-    csrf: String,
+NotebookSummary {
+    summary: String,
+    suggested_topics: Vec<SuggestedTopic>,
 }
 ```
 
-## Tipos de Solicitud MCP
+### SuggestedTopic
 
-| Tipo | Campos |
-|------|--------|
-| `NotebookCreateRequest` | `title: String` |
-| `SourceAddRequest` | `notebook_id, title, content: String` |
-| `AskQuestionRequest` | `notebook_id, question: String` |
+```rust
+SuggestedTopic {
+    question: String,
+    prompt: String,
+}
+```
 
 ## Tipos de Error
 
-### `NotebookLmError`
+### NotebookLmError
 
-| Variante | Disparadores | Recuperacion |
-|----------|-------------|-------------|
-| `SessionExpired` | 401, no autorizado | Re-autenticarse |
-| `CsrfExpired` | 400, prohibido | Auto-refrescar CSRF |
-| `SourceNotReady` | Indexacion de fuente | Sondear disponibilidad |
-| `RateLimited` | 429, demasiadas | Retroceder |
-| `ParseError` | Errores JSON | Registrar y reintentar |
-| `NetworkError` | Conexion/timeout | Reintentar con backoff |
-| `Unknown` | Sin clasificar | Registrar e investigar |
+Autodetectado desde respuestas HTTP:
 
-Auto-deteccion via `from_string()` examina el texto de error buscando palabras clave de estado HTTP.
-
-## Tipos Internos
-
-| Tipo | Proposito |
-|------|-----------|
-| `ConversationMessage` | `{ question, answer: String }` |
-| `ConversationHistory` | `Vec<ConversationMessage>` |
-| `SourceState` | `Ready \| Processing \| Error \| Unknown` |
-| `PollerConfig` | `check_interval: 2s, timeout: 60s, max_retries: 30` |
-| `AuthResult` | `Success \| FallbackRequired \| Failed` |
-| `AuthStatus` | `{ chrome_available, has_stored_credentials: bool }` |
-| `RpcResponse` | `{ rpc_id, inner_json: Value }` |
+| Variante | Disparador | Recuperación |
+|----------|------------|--------------|
+| `NotFound` | 404 o respuesta vacía | Verificar validez del ID |
+| `NotReady` | Artefacto/fuente aún en procesamiento | Hacer polling para verificar disponibilidad |
+| `GenerationFailed` | Google devolvió error | Reintentar o ajustar parámetros |
+| `DownloadFailed` | URL expirada o inválida | Regenerar el artefacto |
+| `AuthExpired` | Token CSRF o cookie expirados | Reautenticarse |
+| `RateLimited` | Respuesta 429 | Esperar y reintentar |
+| `HttpError` | Falla HTTP genérica | Reintentar con retroceso |
+| `ParseError` | Formato de respuesta inesperado | Registrar y investigar |
 
 ## Almacenamiento
 
-- **Sin base de datos** — `HashMap` en memoria + `RwLock`
-- **Credenciales:** keyring del SO (primario) o archivo DPAPI en `~/.notebooklm-mcp/session.bin`
+Este proyecto **no utiliza base de datos**. Todo el estado reside en los servidores de Google — el servidor MCP es sin estado y realiza llamadas RPC individuales para cada operación.
+
+> **[English](../en/03-data-models.md)** · **[Português](../pt/03-data-models.md)**

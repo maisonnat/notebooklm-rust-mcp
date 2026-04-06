@@ -2,150 +2,185 @@
 title: "Architecture — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
-last_updated: "2026-04-04"
-last_commit: "bfa6056"
+last_updated: "2026-04-06"
+lang: en
 scan_type: full
-tags: [rust, mcp, documentation]
-audience: engineers
 ---
 
-# Architecture — NotebookLM MCP Server
+# Architecture
 
-## System overview
+## System Overview
 
-El servidor MCP recibe requests de clientes MCP via stdio, los procesa usando un cliente HTTP interno con rate limiting, y se comunica con las APIs internas de NotebookLM. Usa un parser defensivo para manejar las respuestas RPC de Google.
-
-```mermaid
-graph TD
-    Client[MCP Client<br/>Cursor/Windsurf/Claude] -->|stdio| Server[notebooklm-mcp]
-    Server --> CLI[CLI Handler<br/>clap]
-    Server --> MCP[MCP Server<br/>rmcp]
-    Server --> Session[Session Manager<br/>DPAPI/Keyring]
-    Server --> ClientHTTP[NotebookLmClient]
-    ClientHTTP --> RateLimit[Rate Limiter<br/>governor]
-    ClientHTTP --> Parser[Parser RPC<br/>defensive]
-    ClientHTTP --> Cache[Conversation Cache]
-    ClientHTTP -->|HTTPS| Google[Google NotebookLM API]
-    
-    Auth[Browser Auth<br/>headless_chrome] -->|CDP| Chrome[Chrome Browser]
-    Auth --> Keyring[OS Keyring<br/>Windows Credential Manager]
+```
+┌─────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│  MCP Client  │────▶│  notebooklm-mcp  │────▶│  Google NotebookLM  │
+│ (Claude/etc) │◀────│  (stdio server)  │◀────│  batchexecute RPC  │
+└─────────────┘     └──────────────────┘     └────────────────────┘
+       │                    │
+       │              ┌─────┴─────┐
+       │              │  Modules   │
+       │              └───────────┘
+  CLI (clap)     NotebookLmClient
+                  auth_helper.rs
+                  auth_browser.rs
+                  parser.rs
+                  rpc/*.rs
+                  pollers
 ```
 
-## Project type
+## Module Structure
 
-**CLI tool + MCP Server** — Aplicación standalone que funciona tanto como herramienta CLI como servidor MCP. Opera como bridge entre agentes IA y las APIs internas de NotebookLM.
-
-## Module breakdown
-
-| Module | Responsibility | Key files |
-|--------|---------------|-----------|
-| `main.rs` | Entry point, CLI parsing, MCP server, session management | `src/main.rs` |
-| `notebooklm_client.rs` | HTTP client, rate limiting, retry, conversation cache | `src/notebooklm_client.rs` |
-| `auth_browser.rs` | Browser automation, cookie extraction, keyring storage | `src/auth_browser.rs` |
-| `auth_helper.rs` | CSRF extraction, session validation | `src/auth_helper.rs` |
-| `parser.rs` | Defensive RPC parsing, anti-XSSI cleaning | `src/parser.rs` |
-| `source_poller.rs` | Source indexation polling | `src/source_poller.rs` |
-| `conversation_cache.rs` | Per-notebook conversation history | `src/conversation_cache.rs` |
-| `errors.rs` | Structured error types | `src/errors.rs` |
-
-## Entry points
-
-| Entry point | Purpose |
-|-------------|---------|
-| `cargo run` or binary | Inicia el servidor MCP via stdio |
-| `notebooklm-mcp auth-browser` | Autenticación browser automation |
-| `notebooklm-mcp auth --cookie --csrf` | Autenticación manual |
-| `notebooklm-mcp verify` | Verifica conexión con NotebookLM |
-
-## Design patterns
-
-### Defensive parsing
-
-**Where:** `src/parser.rs`
-**How:** Every accessor function (`get_string_at`, `get_uuid_at`, etc.) returns `Option<T>` instead of using unwrap(). All array accesses are bounds-checked.
-**Why:** Google's RPC responses are complex nested arrays with inconsistent structures. Defensive parsing prevents crashes when unexpected data appears.
-
-### Rate limiting with jitter
-
-**Where:** `src/notebooklm_client.rs`
-**How:** Uses `governor` crate with 2 req/sec quota. Adds random jitter (100-1000ms) between requests.
-**Why:** Google's API has strict rate limits. Jitter prevents thundering herd when many clients retry after a rate limit.
-
-### Conversation caching
-
-**Where:** `src/conversation_cache.rs`
-**How:** Stores (notebook_id, conversation_id, history) in a RwLock-protected HashMap.
-**Why:** NotebookLM's streaming API requires a conversation ID that persists across questions. The cache ensures the same conversation ID is reused.
-
-## Key architectural decisions
-
-| Decision | Rationale | Trade-off |
-|----------|-----------|-----------|
-| MCP via rmcp | Protocolo estándar para agentes IA | Añade dependencia de rmcp |
-| Chrome headless para auth | Extrae HttpOnly cookies que no se pueden copiar manualmente | Requiere Chrome instalado |
-| DPAPI para Windows | Encriptación nativa sin dependencias externas | Solo funciona en Windows |
-| Rate limiting 2 req/s | Protege cuenta de Google de bans | Throughput limitado |
-| Parser defensivo | Las APIs de Google cambian frecuentemente | Más código que parsing simple |
-
-> [!NOTE] 🧑‍💻 For engineers
-> La decisión de usar Chrome headless fue tomada porque las cookies `__Secure-1PSID` tienen el flag HttpOnly y no pueden accederse desde JavaScript.
-
-## Data flow
-
-El flujo típico de una pregunta al chatbot:
-
-```mermaid
-sequenceDiagram
-    participant Client as MCP Client
-    participant Server as notebooklm-mcp
-    participant Cache as Conversation Cache
-    participant Google as NotebookLM API
-
-    Client->>Server: ask_question(notebook_id, question)
-    Server->>Cache: get_or_create(notebook_id)
-    Server->>Google: GET notebook sources
-    Google-->>Server: source IDs
-    Server->>Google: POST GenerateFreeFormStreamed
-    Google-->>Server: Streaming response
-    Server->>Cache: add_message(question, answer)
-    Server-->>Client: answer
+```
+src/
+├── main.rs                # CLI entrypoint + MCP server + tool registration
+├── notebooklm_client.rs   # HTTP client for NotebookLM RPC API (20+ methods)
+├── parser.rs              # Defensive JSON parser for Google RPC responses
+├── errors.rs              # Structured error enum with auto-detection
+├── auth_browser.rs        # Chrome CDP automation + keyring storage
+├── auth_helper.rs         # CSRF + session token extraction from HTML
+├── artifact_poller.rs     # Async polling for artifact generation
+├── source_poller.rs       # Async polling for source indexing
+└── rpc/
+    ├── mod.rs             # Module declarations
+    ├── artifacts.rs       # Artifact types + payload builders (9 types)
+    ├── sources.rs         # Source payload builders (5 types)
+    └── notebooks.rs       # Notebook lifecycle types + parsers
 ```
 
-## External integrations
+## Module Responsibilities
 
-| Service | Purpose | How connected |
-|---------|---------|--------------|
-| Google NotebookLM API | Core functionality | HTTP batchexecute + streaming |
-| Chrome (CDP) | Browser automation | headless_chrome crate |
-| Windows Credential Manager | Secure credential storage | keyring crate |
-| Windows DPAPI | Fallback encryption | windows-dpapi crate |
+### `main.rs` — Entry Point & Tool Registration
 
-> [!NOTE]
-> See [[02-api-reference]] for the public interface surface.
-> See [[03-data-models]] for entity relationships.
-> See [[07-security-posture]] for security analysis.
+The single binary entry point. Responsibilities:
 
----
+- **CLI argument parsing** via `clap` — 21 commands mapped to the `Commands` enum
+- **MCP server launch** via `rmcp` — 20 `#[tool]` methods registered as MCP tools
+- **Request routing** — CLI commands and MCP tools delegate to `NotebookLmClient`
+- **Streaming responses** — `ask_question` returns SSE-formatted chunks
 
-## Architectural history
+### `notebooklm_client.rs` — HTTP Client
 
-### Period 1: Initial implementation (2026-04-03)
+The core client wrapping all Google RPC interactions:
 
-El proyecto nació como una implementación en Rust del proyecto Python `notebooklm-py`. El foco inicial fue:
-- Implementar el servidor MCP básico con rmcp
-- Descubrir los RPC IDs de la API (wXbhsf, CCqFvf, izAoDd, rLM1Ne)
-- Implementar autenticación manual con DPAPI
+- `batchexecute()` — All API calls go through this single HTTP POST method
+- **20+ methods** covering notebooks, sources, artifacts, and sharing
+- Rate limiting via `governor` token bucket (2s period, ~30 req/min)
+- Cookie injection from OS keyring or environment variables
 
-### Period 2: Browser automation (2026-04-04)
+### `parser.rs` — Defensive JSON Parser
 
-Se añadió autenticación via Chrome headless para:
-- Eliminar la necesidad de copiar cookies manualmente
-- Extraer cookies HttpOnly que no se pueden ver en DevTools
-- Proveer una experiencia de usuario más fluida
+Handles Google's anti-XSSI response format:
 
-### Current state
+- `strip_antixssi()` — Removes the `)]}'` prefix from responses
+- `extract_by_rpc_id()` — Routes response fragments to the correct handler by RPC ID
+- **Zero `unwrap()`** on external data — all parse functions return `Option`/`Result`
 
-El servidor está operativo con 4 tools MCP funcionando. Los próximos desafíos incluyen:
-- Mejorar el parsing de respuestas streaming
-- Añadir soporte para Linux/macOS en credential storage
-- Mejorar manejo de errores y recovery
+### `src/rpc/` — Payload Builders
+
+Separated by domain:
+
+| Module | Responsibility |
+|--------|---------------|
+| `rpc/artifacts.rs` | Artifact type enums (`ArtifactType` with 9 variants), status codes, payload builders for generation |
+| `rpc/sources.rs` | Payload builders for 5 source types (text, URL, YouTube, Drive, file upload) |
+| `rpc/notebooks.rs` | Notebook lifecycle types, parsers for share status, summary, notebook details |
+
+### `auth_helper.rs` — Token Extraction
+
+- Parses CSRF token and session ID from NotebookLM HTML pages
+- Cookie management and validation
+- CSRF expiry detection
+
+### `auth_browser.rs` — Browser Automation
+
+- Headless Chrome via CDP (`headless_chrome` crate)
+- Automates Google login flow
+- Extracts and stores credentials in OS keyring
+- **Critical fix**: Uses CDP `Network.getCookies` + direct header injection (Google rejects plain HTTP cookie forwarding)
+
+### `errors.rs` — Structured Error Handling
+
+- `NotebookLmError` enum with auto-detection from HTTP responses
+- Covers: NotFound, NotReady, GenerationFailed, DownloadFailed, AuthExpired, RateLimited
+
+### `artifact_poller.rs` — Async Artifact Polling
+
+Polls artifact generation status until completion or failure with exponential backoff.
+
+### `source_poller.rs` — Async Source Polling
+
+Polls source indexing status after ingestion until the source is processed.
+
+## Design Patterns
+
+### Batch Execute Pattern
+
+Every Google API interaction follows this pipeline:
+
+```
+MCP Tool / CLI Command
+  → NotebookLmClient.{method}()
+    → batchexecute() HTTP POST to notebooklm.google.com
+      → Response with anti-XSSI prefix
+        → strip_antixssi()
+          → extract_by_rpc_id()
+            → Defensive parse → Structured result
+              → Formatted string response
+```
+
+### Request-Response MCP Tools
+
+Each `#[tool]` method makes **one RPC call** and returns a formatted string. No state is held between calls — the server is stateless.
+
+### Post-Mutation Read
+
+Write operations (rename, share_set) **read back confirmed data** after the mutation to return authoritative state to the caller.
+
+### Defensive Parsing
+
+Zero `unwrap()` on external data. All parse functions return `Option<T>` or `Result<T, E>`. Google's RPC responses are unpredictable — the parser never assumes structure.
+
+### Rate Limiting
+
+Token bucket via `governor`: 2 requests per second, ~30 requests per minute. Exponential backoff on 429 responses.
+
+### Credential Storage
+
+Credentials stored in **OS keyring** (via `keyring` crate) with DPAPI fallback on Windows. Never in environment variables, config files, or logs.
+
+## Data Flow
+
+```
+User / AI Agent
+    │
+    ├── CLI: clap parses args → Commands enum → match → NotebookLmClient method
+    │
+    └── MCP: rmcp dispatches tool call → #[tool] method → NotebookLmClient method
+                                                                  │
+                                                    batchexecute() POST
+                                                                  │
+                                                    ┌───────────┴───────────┐
+                                                    │  Google RPC Response   │
+                                                    │  )]}'\n + JSON array   │
+                                                    └───────────┬───────────┘
+                                                                  │
+                                                    strip_antixssi()
+                                                                  │
+                                                    extract_by_rpc_id()
+                                                                  │
+                                                    Defensive parse
+                                                                  │
+                                                    Formatted string → Client
+```
+
+## Temporal Evolution
+
+| Period | Date | Summary |
+|--------|------|---------|
+| **Foundation** | 2026-03-28 | Initial MCP server with 4 tools, browser auth, rate limiting, defensive parser |
+| **Documentation v1** | 2026-04-01 → 04-02 | Auto-generated English docs, README.md, CodeTour |
+| **Multi-language** | 2026-04-03 → 04-04 | ES and PT translations, docs versioned in git |
+| **Module 2: Multi-Source** | 2026-04-04 → 04-05 | URL, YouTube, Drive, file upload sources; async source polling |
+| **Module 3: Artifacts + Lifecycle** | 2026-04-05 → 04-06 | 9 artifact types, notebook CRUD, sharing, full SDD cycle |
+
+> **[Español](../es/01-architecture.md)** · **[Português](../pt/01-architecture.md)**

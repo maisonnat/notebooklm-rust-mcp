@@ -2,154 +2,264 @@
 title: "Referencia de API — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
-last_updated: "2026-04-04"
+last_updated: "2026-04-06"
 lang: es
-scan_type: full
 ---
 
 # Referencia de API
 
 ## Herramientas MCP
 
-### `notebook_list`
+### Gestión de Notebooks
 
-Lista todos los notebooks disponibles en la cuenta.
+#### `notebook_list`
 
-**Parametros:** Ninguno
+Lista todos los notebooks del usuario.
 
-**Devuelve:** Cadena formateada con la lista de notebooks.
+**Parámetros:** Ninguno
 
-```
-Notebooks: [Notebook { id: "uuid", title: "My Notebook" }, ...]
-```
+**Devuelve:** Lista formateada de notebooks con ID y título.
 
----
+#### `notebook_create`
 
-### `notebook_create`
+Crea un nuevo notebook.
 
-Crea un nuevo notebook con un titulo.
-
-**Parametros:**
-
-| Campo | Tipo | Descripcion |
-|-------|------|-------------|
-| `title` | `string` | Titulo para el nuevo notebook |
+**Parámetros:**
+- `title` (cadena, requerido): El título del notebook
 
 **Devuelve:** ID del notebook creado.
 
-```
-Cuaderno creado. ID: <uuid>
-```
+#### `notebook_delete`
 
----
+Elimina un notebook por ID. Idempotente — no genera error si el notebook no existe.
 
-### `source_add`
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+
+**Devuelve:** Mensaje de confirmación.
+
+#### `notebook_get`
+
+Obtiene los detalles completos de un notebook, incluyendo cantidad de fuentes, propiedad y fecha de creación.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+
+**Devuelve:** Detalles del notebook (título, ID, cantidad de fuentes, estado de propietario, fecha de creación).
+
+#### `notebook_rename`
+
+Renombra un notebook. Devuelve los detalles actualizados del notebook.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `new_title` (cadena, requerido): Nuevo título para el notebook
+
+**Devuelve:** Detalles actualizados del notebook.
+
+#### `notebook_summary`
+
+Obtiene el resumen generado por IA y los temas sugeridos para un notebook.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+
+**Devuelve:** Texto del resumen y lista de temas sugeridos (pares pregunta + prompt).
+
+#### `notebook_share_status`
+
+Obtiene la configuración de compartido de un notebook.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+
+**Devuelve:** Estado público/privado, nivel de acceso, lista de usuarios compartidos con correos y permisos, URL de compartido.
+
+#### `notebook_share_set`
+
+Alterna la visibilidad del notebook entre público y privado. Devuelve el estado de compartido actualizado.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `public` (booleano, requerido): `true` para público, `false` para privado
+
+**Devuelve:** Estado de compartido actualizado.
+
+### Gestión de Fuentes
+
+#### `source_add`
 
 Agrega una fuente de texto a un notebook.
 
-**Parametros:**
-
-| Campo | Tipo | Descripcion |
-|-------|------|-------------|
-| `notebook_id` | `string` | UUID del notebook destino |
-| `title` | `string` | Titulo para la fuente |
-| `content` | `string` | Contenido de texto de la fuente |
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `title` (cadena, requerido): Título de la fuente
+- `content` (cadena, requerido): Contenido de texto de la fuente
 
 **Devuelve:** ID de la fuente.
 
-```
-Fuente anadida. ID: <uuid>
-```
+#### `source_add_url`
 
----
+Agrega una fuente URL a un notebook. Detecta automáticamente URLs de YouTube y utiliza el flujo de ingesta específico de YouTube.
 
-### `ask_question`
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `url` (cadena, requerido): URL a agregar
+- `title` (cadena, opcional): Título personalizado (se extrae automáticamente si se omite)
 
-Hace una pregunta a un notebook. La pregunta se responde usando todas las fuentes del notebook como contexto.
+**Devuelve:** ID de la fuente.
 
-**Parametros:**
+#### `source_add_youtube`
 
-| Campo | Tipo | Descripcion |
-|-------|------|-------------|
-| `notebook_id` | `string` | UUID del notebook destino |
-| `question` | `string` | Pregunta a realizar |
+Agrega un video de YouTube como fuente.
 
-**Devuelve:** Texto de respuesta generado por IA.
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `url` (cadena, requerido): URL del video de YouTube
+- `title` (cadena, opcional): Título personalizado
 
-> **Nota:** El notebook debe tener al menos una fuente indexada. Si no hay fuentes disponibles, devuelve un error.
+**Devuelve:** ID de la fuente.
 
----
+#### `source_add_drive`
 
-## Recursos MCP
+Agrega un archivo de Google Drive como fuente.
 
-### `notebook://<uuid>`
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `file_id` (cadena, requerido): ID del archivo de Google Drive
+- `title` (cadena, opcional): Título personalizado
 
-Recurso de lectura para cada notebook.
+**Devuelve:** ID de la fuente.
 
-**Respuesta:** JSON con `id`, `title` y `uri`.
+#### `source_add_file`
 
----
+Sube un archivo local como fuente.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `file_path` (cadena, requerido): Ruta del archivo local a subir
+- `title` (cadena, opcional): Título personalizado
+
+**Devuelve:** ID de la fuente.
+
+### Gestión de Artefactos
+
+#### `artifact_list`
+
+Lista todos los artefactos de un notebook.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+
+**Devuelve:** Lista de artefactos con ID, título, tipo y estado.
+
+#### `artifact_generate`
+
+Genera un artefacto. Los parámetros específicos del tipo se agregan según el parámetro `kind`.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `kind` (cadena, requerido): Tipo de artefacto
+- Parámetros adicionales dependen de `kind` (ver abajo)
+
+**Devuelve:** ID del artefacto para hacer polling de completitud.
+
+**Tipos de Artefacto:**
+
+| Kind | Parámetros Adicionales | Formato de Salida |
+|------|------------------------|-------------------|
+| `report` | `instructions` (opcional) | PDF |
+| `quiz` | `difficulty` (easy/medium/hard), `quantity` (3-20) | PDF |
+| `flashcards` | `quantity` (3-20) | PDF |
+| `audio` | `language` (en/es/etc), `length` (short/medium/long), `instructions` (opcional) | Archivo de audio |
+| `infographic` | `detail` (brief/standard), `orientation` (landscape/portrait), `style` (default/professional/casual) | PNG |
+| `slide_deck` | `format` (pdf/pptx), `length` (short/medium/long) | PDF/PPTX |
+| `mind_map` | — | JSON |
+| `video` | `format` (cinematic/documentary), `style` (default/dramatic/cinematic) | Archivo de video |
+| `data_table` | — | PDF |
+
+#### `artifact_delete`
+
+Elimina un artefacto de un notebook.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `artifact_id` (cadena, requerido): ID del artefacto a eliminar
+
+**Devuelve:** Mensaje de confirmación.
+
+#### `artifact_download`
+
+Descarga un artefacto en el formato apropiado.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `artifact_id` (cadena, requerido): ID del artefacto
+- `output` (cadena, opcional): Ruta del archivo de salida (por defecto un nombre auto-generado en el directorio actual)
+
+**Devuelve:** Ruta del archivo del artefacto descargado.
+
+### Interacción con IA
+
+#### `ask_question`
+
+Hace una pregunta sobre un notebook con respuesta en streaming.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `question` (cadena, requerido): Pregunta a realizar
+
+**Devuelve:** Respuesta de texto en streaming (fragmentos).
 
 ## Comandos CLI
 
-### `auth`
+| Comando | Flags | Descripción |
+|---------|-------|-------------|
+| `auth-browser` | — | Autenticarse vía Chrome headless |
+| `auth-status` | — | Verificar estado de autenticación |
+| `verify` | — | Validación E2E de credenciales |
+| `list` | — | Listar todos los notebooks |
+| `create` | `--title` | Crear un notebook |
+| `delete` | `--notebook-id` | Eliminar un notebook |
+| `get` | `--notebook-id` | Obtener detalles de un notebook |
+| `rename` | `--notebook-id` `--title` | Renombrar un notebook |
+| `summary` | `--notebook-id` | Obtener resumen IA |
+| `share-status` | `--notebook-id` | Obtener config de compartido |
+| `share-set` | `--notebook-id` `--public` / `--private` | Alternar compartido |
+| `source-add` | `--notebook-id` `--title` `--content` | Agregar fuente de texto |
+| `source-add-url` | `--notebook-id` `--url` `--title` | Agregar fuente URL |
+| `source-add-youtube` | `--notebook-id` `--url` `--title` | Agregar fuente YouTube |
+| `source-add-drive` | `--notebook-id` `--file-id` `--title` | Agregar fuente Drive |
+| `source-add-file` | `--notebook-id` `--file-path` `--title` | Subir archivo como fuente |
+| `artifact-list` | `--notebook-id` | Listar artefactos |
+| `artifact-generate` | `--notebook-id` `--kind` + flags específicos del tipo | Generar artefacto |
+| `artifact-delete` | `--notebook-id` `--artifact-id` | Eliminar artefacto |
+| `artifact-download` | `--notebook-id` `--artifact-id` `--output` | Descargar artefacto |
+| `ask` | `--notebook-id` `--question` | Hacer pregunta |
 
-Autenticacion manual con cookie y token CSRF.
+## Configuración
 
-```bash
-notebooklm-mcp auth --cookie "YOUR_COOKIE" --csrf "YOUR_CSRF"
+### Variables de Entorno
+
+| Variable | Tipo | Descripción |
+|----------|------|-------------|
+| `NOTEBOOKLM_COOKIE` | cadena | Cookie de autenticación de Google (desde el keyring del SO si no está configurada) |
+| `NOTEBOOKLM_CSRF` | cadena | Token CSRF (desde el keyring del SO si no está configurada) |
+| `NOTEBOOKLM_SID` | cadena | ID de sesión (desde el keyring del SO si no está configurada) |
+
+### Configuración del Cliente MCP
+
+Para usar este servidor con un cliente MCP (Cursor, Claude Desktop, Windsurf):
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "/ruta/a/notebooklm-mcp",
+      "args": []
+    }
+  }
+}
 ```
 
-Las credenciales se encriptan con DPAPI y se almacenan en `~/.notebooklm-mcp/session.bin`.
-
-### `auth-browser` (Recomendado)
-
-Autenticacion basada en browser via Chrome headless.
-
-```bash
-notebooklm-mcp auth-browser
-```
-
-Abre Chrome para login de Google, extrae cookies via CDP, almacena en el keyring del SO.
-
-### `auth-status`
-
-Verifica el estado de autenticacion.
-
-```bash
-notebooklm-mcp auth-status
-```
-
-Muestra si Chrome esta disponible y si hay credenciales almacenadas.
-
-### `verify`
-
-Test de validacion E2E contra la API de NotebookLM.
-
-```bash
-notebooklm-mcp verify
-```
-
-Crea un notebook de prueba para verificar que la conexion funciona.
-
-### `ask`
-
-Hace una pregunta a un notebook directamente desde la CLI.
-
-```bash
-notebooklm-mcp ask --notebook-id <uuid> --question "Tu pregunta"
-```
-
-### `add-source`
-
-Agrega una fuente de texto a un notebook desde la CLI.
-
-```bash
-notebooklm-mcp add-source --notebook-id <uuid> --title "Titulo de la fuente" --content "Contenido de la fuente"
-```
-
----
-
-## Transporte
-
-El servidor MCP se comunica por **stdio** (stdin/stdout). Configurá tu cliente MCP para que lance el binario y se comunique via I/O estandar.
+> **[English](../en/02-api-reference.md)** · **[Português](../pt/02-api-reference.md)**

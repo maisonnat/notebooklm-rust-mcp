@@ -2,7 +2,7 @@
 title: "Data Models — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
 version: "0.1.0"
-last_updated: "2026-04-04"
+last_updated: "2026-04-06"
 lang: en
 scan_type: full
 ---
@@ -11,70 +11,150 @@ scan_type: full
 
 ## Core Entities
 
-### `Notebook`
+### Notebook
+
+The central domain entity representing a Google NotebookLM notebook.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String` | UUID identifier |
+| `title` | `String` | User-defined notebook title |
+| `sources_count` | `u32` | Number of ingested sources |
+| `is_owner` | `bool` | Whether the current user is the owner |
+| `created_at` | `String` | ISO timestamp of creation |
+
+### Source
+
+A reference material added to a notebook for AI processing.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String` | Source identifier |
+| `title` | `String` | Display title |
+| `type` | `SourceType` | One of: Text, URL, YouTube, Drive, File |
+
+### Artifact
+
+Generated content produced from notebook sources.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String` | Artifact identifier |
+| `title` | `String` | Display title |
+| `type` | `ArtifactType` | Content type (Report, Quiz, etc.) |
+| `status` | `ArtifactStatus` | Current generation status |
+| `task_id` | `String` | Async generation task ID |
+| `content_url` | `Option<String>` | Download URL (when completed) |
+| `metadata` | `HashMap<String, String>` | Type-specific metadata |
+
+## Enums
+
+### ArtifactType
+
+All supported artifact generation types:
+
+| Variant | Output | Parameters |
+|---------|--------|------------|
+| `Report` | PDF | `instructions` (optional) |
+| `Quiz` | PDF | `difficulty` (easy/medium/hard), `quantity` (3-20) |
+| `Flashcards` | PDF | `quantity` (3-20) |
+| `Audio` | Audio file | `language`, `length` (short/medium/long), `instructions` |
+| `Infographic` | PNG | `detail`, `orientation`, `style` |
+| `SlideDeck` | PDF/PPTX | `format`, `length` |
+| `MindMap` | JSON | — |
+| `Video` | Video file | `format`, `style` |
+| `DataTable` | PDF | — |
+
+### ArtifactStatus
+
+Tracks the lifecycle of an artifact generation request:
+
+| Variant | Description |
+|---------|-------------|
+| `New` | Request submitted |
+| `Pending` | Queued for processing |
+| `InProgress` | Currently generating |
+| `Completed` | Ready for download |
+| `Failed` | Generation error |
+| `RateLimited` | Throttled by Google (retry later) |
+
+### ShareAccess
+
+| Variant | Value | Description |
+|---------|-------|-------------|
+| `Restricted` | 0 | Private — only invited users |
+| `AnyoneWithLink` | 1 | Public — anyone with the link |
+
+### SharePermission
+
+| Variant | Value | Description |
+|---------|-------|-------------|
+| `Owner` | 1 | Full control |
+| `Editor` | 2 | Can edit content |
+| `Viewer` | 3 | Read-only access |
+
+## Composite Types
+
+### ShareStatus
 
 ```rust
-pub struct Notebook {
-    pub id: String,    // UUID (36 chars)
-    pub title: String,
+ShareStatus {
+    notebook_id: String,
+    is_public: bool,
+    access: ShareAccess,
+    shared_users: Vec<SharedUser>,
+    share_url: String,
 }
 ```
 
-### `BrowserCredentials`
+### SharedUser
 
 ```rust
-pub struct BrowserCredentials {
-    pub cookie: String,  // "__Secure-1PSID=...; __Secure-1PSIDTS=..."
-    pub csrf: String,    // SNlM0e token value
+SharedUser {
+    email: String,
+    permission: SharePermission,
+    display_name: String,
+    avatar_url: String,
 }
 ```
 
-### `SessionData` (DPAPI-encrypted on disk)
+### NotebookSummary
 
 ```rust
-struct SessionData {
-    cookie: String,
-    csrf: String,
+NotebookSummary {
+    summary: String,
+    suggested_topics: Vec<SuggestedTopic>,
 }
 ```
 
-## MCP Request Types
+### SuggestedTopic
 
-| Type | Fields |
-|------|--------|
-| `NotebookCreateRequest` | `title: String` |
-| `SourceAddRequest` | `notebook_id, title, content: String` |
-| `AskQuestionRequest` | `notebook_id, question: String` |
+```rust
+SuggestedTopic {
+    question: String,
+    prompt: String,
+}
+```
 
 ## Error Types
 
-### `NotebookLmError`
+### NotebookLmError
 
-| Variant | Triggers | Recovery |
-|---------|----------|----------|
-| `SessionExpired` | 401, unauthorized | Re-authenticate |
-| `CsrfExpired` | 400, forbidden | Auto-refresh CSRF |
-| `SourceNotReady` | Source indexing | Poll for readiness |
-| `RateLimited` | 429, too many | Back off |
-| `ParseError` | JSON errors | Log and retry |
-| `NetworkError` | Connection/timeout | Retry with backoff |
-| `Unknown` | Unclassified | Log and investigate |
+Auto-detected from HTTP responses:
 
-Auto-detection via `from_string()` examines error text for HTTP status keywords.
-
-## Internal Types
-
-| Type | Purpose |
-|------|---------|
-| `ConversationMessage` | `{ question, answer: String }` |
-| `ConversationHistory` | `Vec<ConversationMessage>` |
-| `SourceState` | `Ready \| Processing \| Error \| Unknown` |
-| `PollerConfig` | `check_interval: 2s, timeout: 60s, max_retries: 30` |
-| `AuthResult` | `Success \| FallbackRequired \| Failed` |
-| `AuthStatus` | `{ chrome_available, has_stored_credentials: bool }` |
-| `RpcResponse` | `{ rpc_id, inner_json: Value }` |
+| Variant | Trigger | Recovery |
+|---------|---------|----------|
+| `NotFound` | 404 or empty response | Check ID validity |
+| `NotReady` | Artifact/source still processing | Poll for readiness |
+| `GenerationFailed` | Google returned error | Retry or adjust params |
+| `DownloadFailed` | URL expired or invalid | Re-generate artifact |
+| `AuthExpired` | CSRF token or cookie expired | Re-authenticate |
+| `RateLimited` | 429 response | Wait and retry |
+| `HttpError` | Generic HTTP failure | Retry with backoff |
+| `ParseError` | Unexpected response format | Log and investigate |
 
 ## Storage
 
-- **No database** — in-memory `HashMap` + `RwLock`
-- **Credentials:** OS keyring (primary) or DPAPI file at `~/.notebooklm-mcp/session.bin`
+This project uses **no database**. All state lives in Google's servers — the MCP server is stateless and makes individual RPC calls for each operation.
+
+> **[Español](../es/03-data-models.md)** · **[Português](../pt/03-data-models.md)**

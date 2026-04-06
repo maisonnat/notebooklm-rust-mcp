@@ -1,92 +1,129 @@
 # NotebookLM MCP Server
 
-> Unofficial MCP (Model Context Protocol) server for Google NotebookLM — allows AI agents to interact with notebooks programmatically.
+> Unofficial MCP (Model Context Protocol) server for Google NotebookLM — bridges AI agents with notebooks programmatically via reverse-engineered internal API.
 
 [![Rust](https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![MCP](https://img.shields.io/badge/MCP-Protocol-blue?style=flat-square)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)](#status)
 [![unsafe: 0](https://img.shields.io/badge/unsafe-0-success?style=flat-square)](https://www.rust-lang.org)
+[![vulns: 0](https://img.shields.io/badge/vulns-0-success?style=flat-square)](https://github.com/rustsec/rustsec)
+[![tests: 329](https://img.shields.io/badge/tests-329-blue?style=flat-square)](https://www.rust-lang.org)
 
 ## What Is It?
 
-An MCP server that bridges AI agents with Google NotebookLM:
+An MCP server that lets AI agents (Claude, Cursor, Windsurf, etc.) interact with Google NotebookLM notebooks. Google has **no public API** — this server reverse-engineers the internal RPC protocol.
 
-- Create and list notebooks
-- Add text sources to notebooks
-- Ask questions with AI-powered answers and conversation history
+## Capabilities
+
+### Notebook Management (8 tools)
+Create, list, rename, delete, get details, AI summary, share status, toggle sharing
+
+### Source Management (5 tools)
+Add text, URL, YouTube, Google Drive, or local file sources
+
+### Artifact Generation (4 tools)
+Generate 9 content types: reports, quizzes, flashcards, audio, infographics, slide decks, mind maps, videos, data tables
+
+### AI Interaction (1 tool)
+Ask questions with streaming responses
+
+**Total: 20 MCP tools + 21 CLI commands**
 
 ## Quick Start
 
 ```bash
+# Build
 cargo build --release
+
+# Authenticate via Chrome
 ./target/release/notebooklm-mcp auth-browser
+
+# Verify credentials
 ./target/release/notebooklm-mcp verify
+
+# Run as MCP server (stdio)
+./target/release/notebooklm-mcp
 ```
 
-Then configure your MCP client (Cursor, Claude Desktop, Windsurf) pointing to the binary.
+### MCP Client Configuration
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "/path/to/notebooklm-mcp",
+      "args": []
+    }
+  }
+}
+```
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| MCP Server | Full Model Context Protocol implementation |
-| Browser Auth | Chrome headless automation via CDP |
-| Rate Limiting | Token bucket (30 req/min) with exponential backoff |
-| Conversation Cache | Per-notebook history with `RwLock<HashMap>` |
-| Source Polling | Automatic wait for source indexing |
-| Defensive Parsing | Zero `unwrap()` on external data |
-| Zero Unsafe | No `unsafe` blocks in the codebase |
+| **20 MCP Tools** | Full notebook, source, artifact, and AI interaction coverage |
+| **21 CLI Commands** | All tools available from the command line |
+| **Browser Auth** | Chrome CDP automation — credentials in OS keyring |
+| **9 Artifact Types** | Reports, quizzes, flashcards, audio, infographics, slides, mind maps, videos, data tables |
+| **5 Source Types** | Text, URL, YouTube, Google Drive, file upload |
+| **Streaming** | Real-time AI responses via SSE |
+| **Rate Limiting** | Token bucket (~30 req/min) with exponential backoff |
+| **Defensive Parsing** | Zero `unwrap()` on external data |
+| **Zero Unsafe** | No `unsafe` blocks |
+| **Zero Vulnerabilities** | `cargo-audit` clean (334 deps) |
+| **Cross-Platform** | Windows, macOS, Linux (OS keyring) |
 
 ## Documentation
 
-### English (Primary)
+### English
 
 | Doc | Description |
 |-----|-------------|
 | [Overview](docs/en/00-overview.md) | What it is and why it exists |
 | [Architecture](docs/en/01-architecture.md) | Module structure, design patterns, data flow |
-| [API Reference](docs/en/02-api-reference.md) | MCP tools, CLI commands |
-| [Data Models](docs/en/03-data-models.md) | Types and entities |
-| [Setup](docs/en/04-setup.md) | Installation and configuration |
-| [User Guide](docs/en/05-user-guide.md) | How to use it |
-| [Changelog](docs/en/06-changelog.md) | Version history |
-| [Security Posture](docs/en/07-security-posture.md) | Auth, credentials, memory safety, supply chain |
+| [API Reference](docs/en/02-api-reference.md) | MCP tools, CLI commands, configuration |
+| [Data Models](docs/en/03-data-models.md) | Entities, enums, type definitions |
+| [Setup Guide](docs/en/04-setup.md) | Installation, authentication, troubleshooting |
+| [User Guide](docs/en/05-user-guide.md) | Common workflows, tips, limitations |
+| [Changelog](docs/en/06-changelog.md) | Release history |
+| [Security Posture](docs/en/07-security-posture.md) | Auth, credentials, memory safety, audit |
 
-### Espanol
+### Español
 
-| Doc | Descripcion |
+| Doc | Descripción |
 |-----|-------------|
-| [Overview](docs/es/00-overview.md) | Que es y para que sirve |
-| [Arquitectura](docs/es/01-architecture.md) | Estructura y patrones de diseno |
-| [Referencia API](docs/es/02-api-reference.md) | Herramientas MCP y comandos CLI |
+| [Vista General](docs/es/00-overview.md) | Qué es y para qué sirve |
+| [Arquitectura](docs/es/01-architecture.md) | Estructura y patrones de diseño |
+| [Referencia de API](docs/es/02-api-reference.md) | Herramientas MCP y comandos CLI |
 | [Modelos de Datos](docs/es/03-data-models.md) | Tipos y entidades |
-| [Instalacion](docs/es/04-setup.md) | Instalacion y configuracion |
-| [Guia de Usuario](docs/es/05-user-guide.md) | Como usarlo |
-| [Changelog](docs/es/06-changelog.md) | Historial de cambios |
+| [Guía de Configuración](docs/es/04-setup.md) | Instalación y configuración |
+| [Guía de Usuario](docs/es/05-user-guide.md) | Cómo usarlo |
+| [Registro de Cambios](docs/es/06-changelog.md) | Historial de versiones |
+| [Postura de Seguridad](docs/es/07-security-posture.md) | Autenticación, seguridad, auditoría |
 
-### Portugues
+### Português
 
-| Doc | Descricao |
+| Doc | Descrição |
 |-----|----------|
-| [Visao Geral](docs/pt/00-overview.md) | O que e e para que serve |
-| [Arquitetura](docs/pt/01-architecture.md) | Estrutura e padroes de projeto |
-| [Referencia API](docs/pt/02-api-reference.md) | Ferramentas MCP e comandos CLI |
+| [Visão Geral](docs/pt/00-overview.md) | O que é e para que serve |
+| [Arquitetura](docs/pt/01-architecture.md) | Estrutura e padrões de projeto |
+| [Referência de API](docs/pt/02-api-reference.md) | Ferramentas MCP e comandos CLI |
 | [Modelos de Dados](docs/pt/03-data-models.md) | Tipos e entidades |
-| [Configuracao](docs/pt/04-setup.md) | Instalacao e configuracao |
-| [Guia do Usuario](docs/pt/05-user-guide.md) | Como usar |
-| [Changelog](docs/pt/06-changelog.md) | Historico de alteracoes |
+| [Guia de Configuração](docs/pt/04-setup.md) | Instalação e configuração |
+| [Guia do Usuário](docs/pt/05-user-guide.md) | Como usar |
+| [Registro de Alterações](docs/pt/06-changelog.md) | Histórico de versões |
+| [Postura de Segurança](docs/pt/07-security-posture.md) | Autenticação, segurança, auditoria |
 
 ### Engineers
 
 | Resource | Description |
 |----------|-------------|
-| [OpenAPI Spec](docs/openapi.yaml) | Internal Google RPC API documentation |
-| [CodeTour](.tours/architecture-walkthrough.tour) | Interactive IDE walkthrough (VS Code / Cursor) |
+| [CodeTour Walkthrough](.tours/architecture-walkthrough.tour) | Interactive IDE onboarding (VS Code / Cursor) |
 
 ## Tech Stack
 
-Rust (edition 2024) + Tokio + rmcp + reqwest (rustls) + governor + headless_chrome + keyring
+Rust (edition 2024) · Tokio · rmcp · reqwest (rustls) · governor · headless_chrome · keyring · clap · serde
 
 ## Status
 

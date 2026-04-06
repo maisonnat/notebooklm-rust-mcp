@@ -1,76 +1,47 @@
 {
-  "title": "Architecture Walkthrough - NotebookLM MCP Server",
-  "description": "Interactive tour of the NotebookLM MCP Server codebase",
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Architecture Walkthrough — notebooklm-rust-mcp",
+  "description": "Interactive walkthrough of the NotebookLM MCP Server codebase. Learn how Rust, MCP, and reverse-engineered Google APIs work together to create a powerful AI-agent bridge.",
   "steps": [
     {
-      "id": "welcome",
-      "title": "Welcome to NotebookLM MCP Server",
-      "description": "This tour will guide you through the architecture of an unofficial MCP server for Google NotebookLM.\n\n**What you'll learn:**\n- How the MCP server handles client requests\n- How authentication works with Chrome headless\n- How to interact with Google's internal APIs\n\n**Project type:** Rust CLI + MCP Server\n**Key files:** main.rs, notebooklm_client.rs, parser.rs",
+      "title": "1. Entry Point — CLI & MCP Server",
       "file": "src/main.rs",
-      "position": { "line": 1, "column": 1 }
+      "description": "### Bootstrapping\n\nThis is where everything starts. Two interfaces share the same codebase:\n\n**CLI (clap):** 21 commands mapped to the `Commands` enum — `auth-browser`, `verify`, `list`, `create`, `delete`, `rename`, `get`, `summary`, `share-status`, `share-set`, `source-add`, `source-add-url`, `source-add-youtube`, `source-add-drive`, `source-add-file`, `artifact-list`, `artifact-generate`, `artifact-delete`, `artifact-download`, `ask`.\n\n**MCP Server:** The `NotebookLmServer` struct uses `rmcp` macros (`#[tool]`) to expose 20 tools to AI agents. Each tool delegates to `NotebookLmClient`.\n\n**Why a single binary?** CLI and MCP share the same business logic — the interface layer is thin, the client does all the work."
     },
     {
-      "id": "entry-point",
-      "title": "Entry Point: main.rs",
-      "description": "The main.rs file serves as both the CLI entry point and the MCP server implementation.\n\n**Key sections:**\n1. CLI parsing with clap (lines 1-52)\n2. MCP server setup with rmcp (lines 54-246)\n3. Session management with DPAPI (lines 248-279)\n4. Command handlers (lines 292-448)",
-      "file": "src/main.rs",
-      "position": { "line": 1, "column": 1 }
-    },
-    {
-      "id": "cli-commands",
-      "title": "CLI Commands",
-      "description": "This project uses clap for CLI argument parsing. Commands include:\n\n- `auth --cookie --csrf` - Manual authentication\n- `auth-browser` - Chrome headless auth (recommended)\n- `auth-status` - Check authentication state\n- `verify` - Test connection to NotebookLM\n- `ask` - Ask questions from CLI\n- `add-source` - Add sources from CLI",
-      "file": "src/main.rs",
-      "position": { "line": 8, "column": 1 }
-    },
-    {
-      "id": "mcp-server",
-      "title": "MCP Server Implementation",
-      "description": "The NotebookLmServer struct implements the rmcp ServerHandler trait, providing:\n\n- **Tools:** notebook_list, notebook_create, source_add, ask_question\n- **Resources:** notebook://{uuid} URIs for accessing notebooks\n- **State:** Arc<RwLock<Option<NotebookLmClient>>> for thread-safe client access",
-      "file": "src/main.rs",
-      "position": { "line": 96, "column": 1 }
-    },
-    {
-      "id": "http-client",
-      "title": "HTTP Client: notebooklm_client.rs",
-      "description": "This is the core of the application. It handles:\n\n1. Rate limiting with governor (2 req/s)\n2. Retry logic with exponential backoff\n3. Conversation caching for streaming API\n4. All HTTP communication with NotebookLM APIs\n\n**Key methods:**\n- list_notebooks()\n- create_notebook()\n- add_source()\n- ask_question()",
+      "title": "2. HTTP Client — NotebookLmClient",
       "file": "src/notebooklm_client.rs",
-      "position": { "line": 1, "column": 1 }
+      "description": "### Core HTTP Client\n\nThe heart of the application. All Google RPC interactions go through this single module.\n\n**Key features:**\n- `batchexecute()` — Every API call uses this one HTTP POST method\n- **20+ methods** covering notebooks, sources, artifacts, and sharing\n- **Rate limiting** via `governor` (2s token bucket = ~30 req/min)\n- **Exponential backoff** with jitter for retries\n- **Streaming** response parsing for `ask_question`\n- **Cookie injection** from OS keyring or environment variables\n\n**Why batchexecute?** Google NotebookLM uses a single RPC endpoint — all operations (list, create, share, generate) are just different parameters to the same POST."
     },
     {
-      "id": "defensive-parser",
-      "title": "Defensive Parser: parser.rs",
-      "description": "Google's RPC responses use positional arrays, not JSON objects. This parser provides safe accessors:\n\n- `get_string_at(array, index)` - Returns Option<String>\n- `get_uuid_at(array, index)` - Validates 36-char UUIDs\n- `strip_antixssi_prefix()` - Cleans )]}' prefixes\n- `extract_by_rpc_id()` - Finds responses by RPC ID\n\n**Why defensive?** Because Google's API changes frequently.",
+      "title": "3. Defensive Parser",
       "file": "src/parser.rs",
-      "position": { "line": 1, "column": 1 }
+      "description": "### Parsing Google's RPC Responses\n\nGoogle returns positional arrays (not named objects) with anti-XSSI prefixes. This module is the **safety layer** between Google's unpredictable responses and our structured code.\n\n- **`strip_antixssi()`:** Removes `)]}'` prefix from every response\n- **`extract_by_rpc_id()`:** Routes response fragments to the correct handler by matching RPC IDs\n- **`get_string_at()` / `get_uuid_at()`:** Safe array access — **never panics** on missing indices\n\n**Zero `unwrap()` on external data** — all parse functions return `Option<T>` or `Result<T, E>`. This is critical because Google's RPC format can change without notice."
     },
     {
-      "id": "auth-browser",
-      "title": "Browser Authentication",
-      "description": "The auth_browser.rs module automates Chrome via CDP (Chrome DevTools Protocol) to extract HttpOnly cookies that cannot be accessed via JavaScript.\n\n**Why headless?** Because __Secure-1PSID cookies have the HttpOnly flag.\n\n**Flow:**\n1. Launch Chrome headless\n2. Navigate to notebooklm.google.com\n3. Wait for user login\n4. Extract cookies via CDP\n5. Store in keyring or DPAPI",
+      "title": "4. RPC Payload Builders",
+      "file": "src/rpc/artifacts.rs",
+      "description": "### Artifact Type System\n\nDefines all 9 artifact types and builds the exact JSON payloads Google expects:\n\n- `ArtifactType` enum: Report, Quiz, Flashcards, Audio, Infographic, SlideDeck, MindMap, Video, DataTable\n- `ArtifactStatus` enum: New, Pending, InProgress, Completed, Failed, RateLimited\n- Payload builders that construct type-specific parameters (difficulty, quantity, language, style, format)\n\n**Also see:** `rpc/sources.rs` (5 source type builders) and `rpc/notebooks.rs` (lifecycle + sharing types and parsers). The separation by domain keeps each module focused and testable."
+    },
+    {
+      "title": "5. Structured Errors",
+      "file": "src/errors.rs",
+      "description": "### Error Handling Strategy\n\nA structured enum that maps HTTP responses to actionable error types:\n\n- `NotFound` → check ID validity\n- `NotReady` → poll for readiness\n- `GenerationFailed` → retry or adjust params\n- `DownloadFailed` → re-generate artifact\n- `AuthExpired` → re-authenticate\n- `RateLimited` → wait and retry\n\n**Auto-detection via `from_string()`** examines error text for HTTP status keywords. This lets the MCP client (or AI agent) decide what action to take without parsing raw HTTP codes."
+    },
+    {
+      "title": "6. Browser Authentication",
       "file": "src/auth_browser.rs",
-      "position": { "line": 1, "column": 1 }
+      "description": "### Chrome CDP Automation\n\nAuthenticates by launching Chrome via CDP, navigating to Google login, and extracting HttpOnly cookies.\n\n**Critical implementation detail:** CDP's `Network.getCookies` returns cookie name+value but NOT SameSite/Secure/Path/Domain attributes. Google's server **rejects** requests without proper cookie attributes. The solution: direct header injection from CDP cookies with attribute reconstruction.\n\n**Flow:** Launch Chrome → Navigate to Google → Wait for `__Secure-1PSID` cookie → Extract via CDP → Store in OS keyring\n\n**Why CDP?** The `__Secure-1PSID` cookie is HttpOnly — invisible to JavaScript but accessible via Chrome DevTools Protocol."
     },
     {
-      "id": "security",
-      "title": "Security & Credentials",
-      "description": "This project stores credentials securely:\n\n**Windows:**\n- DPAPI (windows-dpapi crate) - user-scoped encryption\n- Keyring fallback (Windows Credential Manager)\n\n**Security measures:**\n- Rate limited to 2 req/s\n- Exponential backoff with jitter\n- No unsafe code in codebase\n- cargo-audit passes with 0 vulnerabilities",
-      "file": "src/main.rs",
-      "position": { "line": 261, "column": 1 }
+      "title": "7. CSRF Token Extraction",
+      "file": "src/auth_helper.rs",
+      "description": "### CSRF Management\n\nGoogle's `SNlM0e` token is embedded in NotebookLM HTML pages. This module:\n\n1. Makes a GET to `notebooklm.google.com` with auth cookies\n2. Extracts `SNlM0e` via regex\n3. Validates sessions by checking for 401/403/redirect\n4. Detects CSRF expiry for auto-refresh\n\n**Why a separate module?** CSRF extraction is needed both during auth setup and during regular API calls (token can expire). Keeping it isolated makes testing and replacement easy."
     },
     {
-      "id": "api-flow",
-      "title": "API Request Flow",
-      "description": "When you ask a question via MCP:\n\n1. **MCP Request** → NotebookLmServer::ask_question\n2. **Get Sources** → batchexecute(rLM1Ne, notebook_id)\n3. **Cache Check** → Get/create conversation_id\n4. **Build Request** → Construct params JSON\n5. **Streaming POST** → GenerateFreeFormStreamed\n6. **Parse Response** → Extract answer from chunks\n7. **Cache Update** → Store conversation history\n8. **Return** → MCP response to client",
-      "file": "src/notebooklm_client.rs",
-      "position": { "line": 238, "column": 1 }
-    },
-    {
-      "id": "finish",
-      "title": "Next Steps",
-      "description": "You're now familiar with the architecture. To continue:\n\n1. **Run the server:** `cargo run --release`\n2. **Authenticate:** `./target/release/notebooklm-mcp auth-browser`\n3. **Verify:** `./target/release/notebooklm-mcp verify`\n4. **Add to MCP client:** Point your client to the binary\n\n**Documentation:**\n- [[00-overview]] - Project overview\n- [[02-api-reference]] - Full API documentation\n- [[03-data-models]] - Data structures\n- [[07-security-posture]] - Security analysis",
-      "file": "README.md",
-      "position": { "line": 1, "column": 1 }
+      "title": "8. Async Pollers",
+      "file": "src/artifact_poller.rs",
+      "description": "### Async Completion Polling\n\nBoth `artifact_poller.rs` and `source_poller.rs` handle the async nature of Google's processing:\n\n**Artifact Poller:** After requesting artifact generation, polls status until Completed or Failed. Used by `artifact_generate` to wait for results.\n\n**Source Poller:** After adding a source, polls every 2 seconds until the source appears as indexed in the notebook (60s timeout, 30 max retries).\n\n**Why polling?** Google doesn't provide webhooks. The only way to know when something is done is to check. Both pollers use configurable intervals and timeouts to balance responsiveness with API rate limits."
     }
   ]
 }
