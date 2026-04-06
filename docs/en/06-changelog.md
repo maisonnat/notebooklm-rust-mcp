@@ -9,7 +9,21 @@ scan_type: full
 
 # Changelog
 
-## [Unreleased]
+## [0.3.0] — 2026-04-06
+
+### Module 5: Advanced Features
+
+- **Source Management**: `source_delete` (idempotent), `source_rename`, `source_get_fulltext` (recursive text extraction from indexed sources)
+- **Notes CRUD**: `note_create` (two-step RPC: create empty → update), `note_list` (filters soft-deleted), `note_delete`
+- **Chat History**: `chat_history` — retrieves full conversation from Google servers in chronological order
+- **Deep Research**: `research_deep_dive` — launches Google's autonomous research engine, polls until completion, imports discovered sources
+- **Recursive parser**: `extract_all_text` with configurable max-depth for deeply nested Google RPC responses
+- **Conversation continuity**: `ask_question` auto-recovers active conversation ID from Google servers
+- 8 new MCP tools, 8 new CLI commands, 11 new client methods
+- 333 tests, 0 clippy warnings
+- Full SDD cycle (Explore → Propose → 5 Specs → Design → Tasks → Apply → Verify)
+
+## [0.2.1] — 2026-04-05
 
 ### Module 4: Notebook Lifecycle & Sharing
 

@@ -160,9 +160,9 @@
 - [x] 6.1.4: Contar: 28 MCP tools totales, 29 CLI commands totales
 
 ### Task 6.2: Documentation update
-- [ ] 6.2.1: Actualizar `docs/en/02-api-reference.md` con los 8 nuevos tools
-- [ ] 6.2.2: Actualizar `docs/en/05-user-guide.md` con los nuevos workflows
-- [ ] 6.2.3: Actualizar `docs/en/06-changelog.md` con la versión 0.3.0
+- [x] 6.2.1: Actualizar `docs/en/02-api-reference.md` con los 8 nuevos tools
+- [x] 6.2.2: Actualizar `docs/en/05-user-guide.md` con los nuevos workflows
+- [x] 6.2.3: Actualizar `docs/en/06-changelog.md` con la versión 0.3.0
 
 ---
 

@@ -211,6 +211,96 @@ Hace una pregunta sobre un notebook con respuesta en streaming.
 
 **Devuelve:** Respuesta de texto en streaming (fragmentos).
 
+### Gestión de Fuentes
+
+#### `source_delete`
+
+Elimina una fuente de un notebook. Idempotente — no genera error si la fuente no existe.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `source_id` (cadena, requerido): ID de la fuente a eliminar
+
+**Devuelve:** Mensaje de confirmación.
+
+#### `source_rename`
+
+Renombra una fuente de un notebook.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `source_id` (cadena, requerido): ID de la fuente a renombrar
+- `new_title` (cadena, requerido): Nuevo título para la fuente
+
+**Devuelve:** Mensaje de confirmación.
+
+#### `source_get_fulltext`
+
+Obtiene el texto indexado completo de una fuente (extraído por Google de PDFs, páginas web, etc.). Útil para leer el contenido del documento sin hacer preguntas.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `source_id` (cadena, requerido): ID de la fuente
+
+**Devuelve:** Contenido de texto extraído completo.
+
+### Notas
+
+#### `note_create`
+
+Crea una nota en un notebook. Las notas son visibles en la interfaz web de NotebookLM.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `title` (cadena, requerido): Título de la nota
+- `content` (cadena, requerido): Contenido de la nota
+
+**Devuelve:** ID de la nota.
+
+#### `note_list`
+
+Lista todas las notas activas de un notebook (excluye notas eliminadas con soft-delete).
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+
+**Devuelve:** Lista de notas con ID y título.
+
+#### `note_delete`
+
+Elimina una nota de un notebook (soft-delete).
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `note_id` (cadena, requerido): ID de la nota a eliminar
+
+**Devuelve:** Mensaje de confirmación.
+
+### Historial de Chat
+
+#### `chat_history`
+
+Obtiene el historial oficial de conversación de chat desde los servidores de Google para un notebook. Devuelve los turnos en orden cronológico (del más antiguo al más reciente).
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `limit` (entero, opcional): Máximo de turnos a recuperar (por defecto: 20)
+
+**Devuelve:** Lista de turnos con rol ("user" o "assistant") y texto.
+
+### Investigación Profunda
+
+#### `research_deep_dive`
+
+Inicia una investigación profunda usando el motor de investigación autónoma de Google. Bloquea hasta completar (timeout de hasta 300s), luego importa las fuentes descubiertas al notebook.
+
+**Parámetros:**
+- `notebook_id` (cadena, requerido): UUID del notebook
+- `query` (cadena, requerido): Consulta de investigación
+- `timeout_secs` (entero, opcional): Tiempo máximo de espera en segundos (por defecto: 300)
+
+**Devuelve:** Resumen de las fuentes descubiertas.
+
 ## Comandos CLI
 
 | Comando | Flags | Descripción |
@@ -231,10 +321,18 @@ Hace una pregunta sobre un notebook con respuesta en streaming.
 | `source-add-youtube` | `--notebook-id` `--url` `--title` | Agregar fuente YouTube |
 | `source-add-drive` | `--notebook-id` `--file-id` `--title` | Agregar fuente Drive |
 | `source-add-file` | `--notebook-id` `--file-path` `--title` | Subir archivo como fuente |
+| `source-delete` | `--notebook-id` `--source-id` | Eliminar una fuente |
+| `source-rename` | `--notebook-id` `--source-id` `--new-title` | Renombrar una fuente |
+| `source-get-fulltext` | `--notebook-id` `--source-id` | Obtener texto completo de fuente |
 | `artifact-list` | `--notebook-id` | Listar artefactos |
 | `artifact-generate` | `--notebook-id` `--kind` + flags específicos del tipo | Generar artefacto |
 | `artifact-delete` | `--notebook-id` `--artifact-id` | Eliminar artefacto |
 | `artifact-download` | `--notebook-id` `--artifact-id` `--output` | Descargar artefacto |
+| `note-create` | `--notebook-id` `--title` `--content` | Crear una nota |
+| `note-list` | `--notebook-id` | Listar notas |
+| `note-delete` | `--notebook-id` `--note-id` | Eliminar una nota |
+| `chat-history` | `--notebook-id` `--limit` | Obtener historial de chat |
+| `research` | `--notebook-id` `--query` `--timeout-secs` | Investigación profunda |
 | `ask` | `--notebook-id` `--question` | Hacer pregunta |
 
 ## Configuración

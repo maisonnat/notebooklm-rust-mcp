@@ -211,6 +211,96 @@ Ask a question about a notebook with streaming response.
 
 **Returns:** Streaming text response (chunks).
 
+### Source Management
+
+#### `source_delete`
+
+Delete a source from a notebook. Idempotent — does not error if the source doesn't exist.
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+- `source_id` (string, required): ID of the source to delete
+
+**Returns:** Confirmation message.
+
+#### `source_rename`
+
+Rename a source in a notebook.
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+- `source_id` (string, required): ID of the source to rename
+- `new_title` (string, required): New title for the source
+
+**Returns:** Confirmation message.
+
+#### `source_get_fulltext`
+
+Get the full indexed text of a source (extracted by Google from PDFs, web pages, etc.). Useful for reading document content without asking questions.
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+- `source_id` (string, required): ID of the source
+
+**Returns:** Complete extracted text content.
+
+### Notes
+
+#### `note_create`
+
+Create a note in a notebook. Notes are visible in the NotebookLM web UI.
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+- `title` (string, required): Note title
+- `content` (string, required): Note content
+
+**Returns:** Note ID.
+
+#### `note_list`
+
+List all active notes in a notebook (excludes soft-deleted notes).
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+
+**Returns:** List of notes with ID and title.
+
+#### `note_delete`
+
+Delete a note from a notebook (soft-delete).
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+- `note_id` (string, required): ID of the note to delete
+
+**Returns:** Confirmation message.
+
+### Chat History
+
+#### `chat_history`
+
+Get the official chat conversation history from Google servers for a notebook. Returns turns in chronological order (oldest first).
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+- `limit` (integer, optional): Max turns to retrieve (default: 20)
+
+**Returns:** List of turns with role ("user" or "assistant") and text.
+
+### Deep Research
+
+#### `research_deep_dive`
+
+Start a deep research investigation using Google's autonomous research engine. Blocks until complete (up to 300s timeout), then imports discovered sources into the notebook.
+
+**Parameters:**
+- `notebook_id` (string, required): UUID of the notebook
+- `query` (string, required): Research query
+- `timeout_secs` (integer, optional): Max wait time in seconds (default: 300)
+
+**Returns:** Summary of discovered sources.
+
 ## CLI Commands
 
 | Command | Flags | Description |
@@ -231,10 +321,18 @@ Ask a question about a notebook with streaming response.
 | `source-add-youtube` | `--notebook-id` `--url` `--title` | Add YouTube source |
 | `source-add-drive` | `--notebook-id` `--file-id` `--title` | Add Drive source |
 | `source-add-file` | `--notebook-id` `--file-path` `--title` | Upload file source |
+| `source-delete` | `--notebook-id` `--source-id` | Delete a source |
+| `source-rename` | `--notebook-id` `--source-id` `--new-title` | Rename a source |
+| `source-get-fulltext` | `--notebook-id` `--source-id` | Get source fulltext |
 | `artifact-list` | `--notebook-id` | List artifacts |
 | `artifact-generate` | `--notebook-id` `--kind` + type-specific flags | Generate artifact |
 | `artifact-delete` | `--notebook-id` `--artifact-id` | Delete artifact |
 | `artifact-download` | `--notebook-id` `--artifact-id` `--output` | Download artifact |
+| `note-create` | `--notebook-id` `--title` `--content` | Create a note |
+| `note-list` | `--notebook-id` | List notes |
+| `note-delete` | `--notebook-id` `--note-id` | Delete a note |
+| `chat-history` | `--notebook-id` `--limit` | Get chat history |
+| `research` | `--notebook-id` `--query` `--timeout-secs` | Deep research |
 | `ask` | `--notebook-id` `--question` | Ask question |
 
 ## Configuration

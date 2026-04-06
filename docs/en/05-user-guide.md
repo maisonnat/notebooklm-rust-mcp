@@ -78,9 +78,81 @@ share-status --notebook-id <id>
 delete --notebook-id <id>
 ```
 
-### 6. AI Interaction
+### 6. Source Management
 
-The `ask_question` tool supports **streaming responses** — you get answers as they're generated, similar to chatting with NotebookLM in the browser.
+Beyond adding sources, you can rename, delete, and read their full extracted text:
+
+```bash
+# Rename a source
+source-rename --notebook-id <id> --source-id <source-id> --new-title "Better Title"
+
+# Delete a source (idempotent — safe to call even if already deleted)
+source-delete --notebook-id <id> --source-id <source-id>
+
+# Get the full extracted text of a source (useful for PDFs, web pages, etc.)
+source-get-fulltext --notebook-id <id> --source-id <source-id>
+```
+
+The `source_get_fulltext` tool is particularly powerful — it returns the **complete text that Google extracted and indexed** from the source, including OCR text from PDFs and parsed content from web pages. This lets you read document content directly without asking questions.
+
+### 7. Notes CRUD
+
+Create, list, and manage notes inside a notebook. Notes appear in the NotebookLM web UI alongside your sources:
+
+```bash
+# Create a note
+note-create --notebook-id <id> --title "Key Findings" --content "Important insights from the research..."
+
+# List all active notes (excludes soft-deleted notes)
+note-list --notebook-id <id>
+
+# Delete a note (soft-delete)
+note-delete --notebook-id <id> --note-id <note-id>
+```
+
+> **Note**: Note creation is a two-step process internally (create empty → update with content). The MCP tool handles this automatically.
+
+### 8. Chat History
+
+Retrieve the full conversation history from Google's servers for any notebook:
+
+```bash
+# Get last 20 turns (default)
+chat-history --notebook-id <id>
+
+# Get last 50 turns
+chat-history --notebook-id <id> --limit 50
+```
+
+Returns turns in **chronological order** (oldest first), with each turn showing the role (`user` or `assistant`) and text. This is useful for:
+
+- Reviewing what questions were asked previously
+- Building context for follow-up questions
+- Exporting conversation logs
+
+### 9. Deep Research
+
+Launch Google's autonomous research engine from any MCP client. The tool **blocks until research completes** (up to 300s), then automatically imports discovered sources into the notebook:
+
+```bash
+# Start a deep research investigation
+research --notebook-id <id> --query "Compare transformer architectures for NLP tasks"
+
+# With custom timeout
+research --notebook-id <id> --query "Quantum computing applications" --timeout-secs 600
+```
+
+The research flow:
+1. Starts a research task on Google's servers
+2. Polls for completion every 5 seconds
+3. When complete, imports all discovered web sources into the notebook
+4. Returns a summary of discovered sources
+
+> **Tip**: Deep research can take 2-5 minutes. If the timeout is reached, you get a partial result with whatever sources were discovered so far.
+
+### 10. AI Interaction
+
+The `ask_question` tool supports **streaming responses** — you get answers as they're generated, similar to chatting with NotebookLM in the browser. The tool automatically retrieves the active conversation ID from Google's servers to maintain conversation continuity.
 
 ## Supported Artifact Types
 

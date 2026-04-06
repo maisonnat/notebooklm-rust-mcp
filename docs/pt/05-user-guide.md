@@ -78,9 +78,81 @@ share-status --notebook-id <id>
 delete --notebook-id <id>
 ```
 
-### 6. Interação com IA
+### 6. Gerenciamento de Fontes
 
-A ferramenta `ask_question` suporta **respostas em streaming** — você recebe as respostas conforme são geradas, similar ao chat com o NotebookLM no navegador.
+Além de adicionar fontes, você pode renomear, excluir e ler o texto extraído completo:
+
+```bash
+# Renomear uma fonte
+source-rename --notebook-id <id> --source-id <source-id> --new-title "Título Melhor"
+
+# Excluir uma fonte (idempotente — seguro chamar mesmo que já tenha sido excluída)
+source-delete --notebook-id <id> --source-id <source-id>
+
+# Obter o texto completo extraído de uma fonte (útil para PDFs, páginas web, etc.)
+source-get-fulltext --notebook-id <id> --source-id <source-id>
+```
+
+A ferramenta `source_get_fulltext` é particularmente poderosa — ela retorna o **texto completo que o Google extraiu e indexou** da fonte, incluindo texto de OCR de PDFs e conteúdo analisado de páginas web. Isso permite que você leia o conteúdo do documento diretamente sem precisar fazer perguntas.
+
+### 7. CRUD de Notas
+
+Crie, liste e gerencie notas dentro de um caderno. As notas aparecem na interface web do NotebookLM junto com suas fontes:
+
+```bash
+# Criar uma nota
+note-create --notebook-id <id> --title "Descobertas Importantes" --content "Insights importantes da pesquisa..."
+
+# Listar todas as notas ativas (exclui notas excluídas temporariamente)
+note-list --notebook-id <id>
+
+# Excluir uma nota (exclusão temporária)
+note-delete --notebook-id <id> --note-id <note-id>
+```
+
+> **Nota**: A criação de notas é um processo de duas etapas internamente (criar vazio → atualizar com conteúdo). A ferramenta MCP trata isso automaticamente.
+
+### 8. Histórico de Chat
+
+Recupere o histórico completo de conversas dos servidores do Google para qualquer caderno:
+
+```bash
+# Obter as últimas 20 mensagens (padrão)
+chat-history --notebook-id <id>
+
+# Obter as últimas 50 mensagens
+chat-history --notebook-id <id> --limit 50
+```
+
+Retorna as mensagens em **ordem cronológica** (mais antigas primeiro), com cada mensagem mostrando o papel (`user` ou `assistant`) e o texto. Isso é útil para:
+
+- Revisar quais perguntas foram feitas anteriormente
+- Construir contexto para perguntas de acompanhamento
+- Exportar logs de conversação
+
+### 9. Deep Research
+
+Inicie o mecanismo de pesquisa autônoma do Google a partir de qualquer cliente MCP. A ferramenta **bloqueia até que a pesquisa seja concluída** (até 300s) e, em seguida, importa automaticamente as fontes descobertas no caderno:
+
+```bash
+# Iniciar uma investigação de deep research
+research --notebook-id <id> --query "Comparar arquiteturas de transformers para tarefas de NLP"
+
+# Com timeout personalizado
+research --notebook-id <id> --query "Aplicações de computação quântica" --timeout-secs 600
+```
+
+O fluxo de pesquisa:
+1. Inicia uma tarefa de pesquisa nos servidores do Google
+2. Faz polling a cada 5 segundos para verificar a conclusão
+3. Quando concluído, importa todas as fontes web descobertas no caderno
+4. Retorna um resumo das fontes descobertas
+
+> **Dica**: O deep research pode levar de 2 a 5 minutos. Se o timeout for atingido, você recebe um resultado parcial com as fontes descobertas até o momento.
+
+### 10. Interação com IA
+
+A ferramenta `ask_question` suporta **respostas em streaming** — você recebe as respostas conforme são geradas, similar ao chat com o NotebookLM no navegador. A ferramenta recupera automaticamente o ID da conversa ativa dos servidores do Google para manter a continuidade da conversa.
 
 ## Tipos de Artefato Suportados
 

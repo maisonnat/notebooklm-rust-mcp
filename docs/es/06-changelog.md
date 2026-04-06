@@ -9,7 +9,21 @@ scan_type: full
 
 # Registro de Cambios
 
-## [Sin Publicar]
+## [0.3.0] — 2026-04-06
+
+### Módulo 5: Funcionalidades Avanzadas
+
+- **Gestión de fuentes**: `source_delete` (idempotente), `source_rename`, `source_get_fulltext` (extracción recursiva de texto desde fuentes indexadas)
+- **CRUD de notas**: `note_create` (RPC de dos pasos: crear vacía → actualizar), `note_list` (filtra eliminadas con soft-delete), `note_delete`
+- **Historial de chat**: `chat_history` — recupera la conversación completa desde los servidores de Google en orden cronológico
+- **Investigación profunda**: `research_deep_dive` — lanza el motor de investigación autónoma de Google, realiza polling hasta completar, importa fuentes descubiertas
+- **Parser recursivo**: `extract_all_text` con max-depth configurable para respuestas RPC de Google profundamente anidadas
+- **Continuidad de conversación**: `ask_question` recupera automáticamente el ID de conversación activa desde los servidores de Google
+- 8 nuevas herramientas MCP, 8 nuevos comandos CLI, 11 nuevos métodos de cliente
+- 333 tests, 0 advertencias de clippy
+- Ciclo SDD completo (Explorar → Proponer → 5 Especificaciones → Diseñar → Tareas → Aplicar → Verificar)
+
+## [0.2.1] — 2026-04-05
 
 ### Módulo 4: Ciclo de Vida de Notebooks y Compartido
 
