@@ -169,14 +169,24 @@ pub struct NotebookLmClient {
     /// Step 2 needs JSON, step 3 needs raw bytes. Each request sets its own.
     #[allow(dead_code)]
     upload_http: Client,
-    csrf: String,
+    csrf: tokio::sync::RwLock<String>,
     /// Session ID (FdrFJe) — required as `f.sid` param in batchexecute URLs.
     /// Google routes requests to the correct server-side session using this.
-    sid: String,
+    sid: tokio::sync::RwLock<String>,
     limiter: Limiter,
     conversation_cache: SharedConversationCache,
     #[allow(dead_code)]
     upload_semaphore: Semaphore,
+
+    // --- Module 6: Circuit breaker ---
+    /// Consecutive auth error count. AtomicU32 for lock-free concurrent access.
+    auth_error_count: std::sync::atomic::AtomicU32,
+    /// Instant when circuit opened. Used for half-open probe after 60s.
+    circuit_opened_at: std::sync::Mutex<Option<std::time::Instant>>,
+    /// Cookie string stored for CSRF refresh.
+    cookie: String,
+    /// Mutex to serialize CSRF refresh attempts across concurrent requests.
+    refresh_lock: tokio::sync::Mutex<()>,
 }
 
 impl NotebookLmClient {
@@ -185,7 +195,7 @@ impl NotebookLmClient {
         let limiter = RateLimiter::direct(quota);
 
         // Client for RPC calls — needs Content-Type: application/x-www-form-urlencoded
-        let mut headers = header::HeaderMap::new();
+        let mut headers = crate::browser_headers::browser_headers();
         headers.insert(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap());
         headers.insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/x-www-form-urlencoded;charset=utf-8"));
 
@@ -198,7 +208,7 @@ impl NotebookLmClient {
         // Step 2 (start resumable) sends JSON body.
         // Step 3 (stream upload) sends raw bytes.
         // Each request sets its own Content-Type header.
-        let mut upload_headers = header::HeaderMap::new();
+        let mut upload_headers = crate::browser_headers::browser_headers();
         upload_headers.insert(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap());
 
         let upload_http = Client::builder()
@@ -212,11 +222,16 @@ impl NotebookLmClient {
         Self {
             http,
             upload_http,
-            csrf,
-            sid,
+            csrf: tokio::sync::RwLock::new(csrf),
+            sid: tokio::sync::RwLock::new(sid),
             limiter,
             conversation_cache: new_conversation_cache(),
             upload_semaphore,
+            // Module 6: Circuit breaker
+            auth_error_count: std::sync::atomic::AtomicU32::new(0),
+            circuit_opened_at: std::sync::Mutex::new(None),
+            cookie,
+            refresh_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -226,8 +241,8 @@ impl NotebookLmClient {
             return;
         }
         
-        // Base delay: 1 second, doubling each attempt
-        let base_delay = 1u64.pow(attempt.min(6)); // Cap at 64 seconds
+        // Base delay: 2 seconds, doubling each attempt (1→2, 2→4, 4→8, ...)
+        let base_delay = 2u64.pow(attempt.min(6)); // Cap at 64 seconds
         let jitter = {
             let mut rng = rand::thread_rng();
             rng.gen_range(100..1000) // 100ms to 1s jitter
@@ -239,18 +254,66 @@ impl NotebookLmClient {
         tokio::time::sleep(Duration::from_millis(capped_delay)).await;
     }
 
-    /// Retry wrapper with exponential backoff for batchexecute
+    /// Retry wrapper with circuit breaker, auto CSRF refresh, exponential backoff, and Retry-After
     async fn batchexecute_with_retry(&self, rpc_id: &str, payload: &str, max_retries: u32) -> Result<Value, String> {
         let mut last_error = String::new();
         
         for attempt in 0..=max_retries {
+            // --- Circuit breaker check ---
+            self.check_circuit_breaker()?;
+
             match self.batchexecute_no_retry(rpc_id, payload).await {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    self.record_auth_success();
+                    return Ok(result);
+                }
                 Err(e) => {
-                    last_error = e;
+                    last_error = e.clone();
+
+                    // --- Auth error detection + auto CSRF refresh ---
+                    if e.starts_with("AUTH_ERROR:") && attempt == 0 {
+                        info!("Auth error detected for {}, attempting CSRF refresh...", rpc_id);
+                        let _lock = self.refresh_lock.lock().await;
+
+                        match self.refresh_csrf_internal().await {
+                            Ok((new_csrf, new_sid)) => {
+                                *self.csrf.write().await = new_csrf;
+                                *self.sid.write().await = new_sid;
+                                info!("CSRF refresh successful, retrying {}", rpc_id);
+
+                                // Retry once with new token
+                                match self.batchexecute_no_retry(rpc_id, payload).await {
+                                    Ok(result) => {
+                                        self.record_auth_success();
+                                        return Ok(result);
+                                    }
+                                    Err(retry_err) => {
+                                        self.record_auth_failure();
+                                        last_error = retry_err;
+                                        continue;
+                                    }
+                                }
+                            }
+                            Err(refresh_err) => {
+                                self.record_auth_failure();
+                                info!("CSRF refresh failed: {}", refresh_err);
+                                // Continue to normal retry loop
+                            }
+                        }
+                    } else if e.starts_with("AUTH_ERROR:") {
+                        // Auth error but not first attempt — no more refresh, just count
+                        self.record_auth_failure();
+                    }
+
                     if attempt < max_retries {
-                        info!("Retry {}/{} for {}: {}", attempt + 1, max_retries + 1, rpc_id, last_error);
-                        Self::apply_exponential_backoff(attempt).await;
+                        // --- Retry-After support ---
+                        if let Some(retry_ms) = Self::extract_retry_after_ms(&last_error) {
+                            info!("429 Rate limited. Retry-After: {}ms", retry_ms);
+                            tokio::time::sleep(Duration::from_millis(retry_ms)).await;
+                        } else {
+                            info!("Retry {}/{} for {}: {}", attempt + 1, max_retries + 1, rpc_id, last_error);
+                            Self::apply_exponential_backoff(attempt).await;
+                        }
                     }
                 }
             }
@@ -262,7 +325,7 @@ impl NotebookLmClient {
     async fn apply_jitter() {
         let jitter = {
             let mut rng = rand::thread_rng();
-            rng.gen_range(150..=600)
+            rng.gen_range(800..=2000) // 800ms to 2s jitter (human-like timing)
         };
         tokio::time::sleep(Duration::from_millis(jitter)).await;
     }
@@ -277,9 +340,13 @@ impl NotebookLmClient {
         Self::apply_jitter().await;
 
         let req_array = format!("[[[\"{}\",\"{}\",null,\"generic\"]]]", rpc_id, payload.replace("\"", "\\\""));
+
+        let csrf = self.csrf.read().await.clone();
+        let sid = self.sid.read().await.clone();
+
         let form_data = [
             ("f.req", req_array),
-            ("at", self.csrf.clone())
+            ("at", csrf)
         ];
 
         // Build batchexecute URL with session ID.
@@ -289,8 +356,8 @@ impl NotebookLmClient {
             "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids={}&rt=c",
             rpc_id
         );
-        if !self.sid.is_empty() {
-            url.push_str(&format!("&source-path=/&f.sid={}", self.sid));
+        if !sid.is_empty() {
+            url.push_str(&format!("&source-path=/&f.sid={}", sid));
         }
 
         let res = self.http.post(&url)
@@ -298,6 +365,24 @@ impl NotebookLmClient {
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        let status = res.status();
+
+        // --- Auth error detection (400/401/403) ---
+        if status == reqwest::StatusCode::UNAUTHORIZED
+            || status == reqwest::StatusCode::FORBIDDEN
+            || status.as_u16() == 400
+        {
+            return Err(format!("AUTH_ERROR:{}", status));
+        }
+
+        // --- 429 Rate limiting with Retry-After ---
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            if let Some(retry_ms) = Self::parse_retry_after(res.headers()) {
+                return Err(format!("RATE_LIMITED_RETRY_AFTER:{}", retry_ms));
+            }
+            return Err(format!("Error HTTP {}", status));
+        }
 
         if !res.status().is_success() {
             return Err(format!("Error HTTP {}", res.status()));
@@ -939,7 +1024,7 @@ impl NotebookLmClient {
         
         let form_data = [
             ("f.req", f_req),
-            ("at", self.csrf.clone())
+            ("at", self.csrf.read().await.clone())
         ];
         
         self.limiter.until_ready().await;
@@ -1945,6 +2030,99 @@ impl NotebookLmClient {
         }
 
         None
+    }
+
+    // =========================================================================
+    // Module 6: Circuit Breaker, Auto CSRF Refresh, Retry-After
+    // =========================================================================
+
+    /// Circuit breaker threshold: open after this many consecutive auth errors.
+    const CIRCUIT_BREAKER_THRESHOLD: u32 = 3;
+    /// How long to wait before allowing a half-open probe request.
+    const CIRCUIT_BREAKER_COOLDOWN: Duration = Duration::from_secs(60);
+
+    /// Check if the circuit breaker allows requests.
+    /// Returns Err with a descriptive message if the circuit is open.
+    fn check_circuit_breaker(&self) -> Result<(), String> {
+        use std::sync::atomic::Ordering;
+
+        let count = self.auth_error_count.load(Ordering::Relaxed);
+
+        if count >= Self::CIRCUIT_BREAKER_THRESHOLD
+            && let Ok(guard) = self.circuit_opened_at.lock()
+            && let Some(opened_at) = *guard
+            && opened_at.elapsed() < Self::CIRCUIT_BREAKER_COOLDOWN
+        {
+            let remaining = Self::CIRCUIT_BREAKER_COOLDOWN.as_secs()
+                - opened_at.elapsed().as_secs();
+            return Err(format!(
+                "Circuit breaker OPEN after {} consecutive auth errors. \
+                 Run `notebooklm-mcp auth-browser` to re-autenticar. \
+                 Cooldown: {}s remaining.",
+                count, remaining
+            ));
+        }
+        // If cooldown elapsed → half-open: allow probe (fall through to Ok)
+        Ok(())
+    }
+
+    /// Reset the auth error counter on successful request.
+    fn record_auth_success(&self) {
+        use std::sync::atomic::Ordering;
+        self.auth_error_count.store(0, Ordering::Relaxed);
+        // Clear the opened_at timestamp
+        if let Ok(mut guard) = self.circuit_opened_at.lock() {
+            *guard = None;
+        }
+    }
+
+    /// Increment auth error counter. Opens circuit if threshold reached.
+    fn record_auth_failure(&self) {
+        use std::sync::atomic::Ordering;
+
+        let count = self.auth_error_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if count >= Self::CIRCUIT_BREAKER_THRESHOLD
+            && let Ok(mut guard) = self.circuit_opened_at.lock()
+            && guard.is_none()
+        {
+            *guard = Some(std::time::Instant::now());
+            tracing::warn!(
+                "Circuit breaker OPENED after {} consecutive auth errors",
+                count
+            );
+        }
+    }
+
+    /// Refresh CSRF token and Session ID using stored cookie.
+    async fn refresh_csrf_internal(&self) -> Result<(String, String), String> {
+        let auth_helper = crate::auth_helper::AuthHelper::new();
+        auth_helper.refresh_tokens(&self.cookie).await
+    }
+
+    /// Parse Retry-After header from HTTP response. Returns delay in milliseconds.
+    /// Supports both integer seconds ("5") and HTTP-date formats.
+    fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+        let value = headers.get("retry-after")?.to_str().ok()?;
+
+        // Try integer seconds first: "5" → 5000ms
+        if let Ok(secs) = value.parse::<u64>() {
+            let ms = secs * 1000;
+            return Some(ms.min(120_000)); // Cap at 120 seconds
+        }
+
+        // Try HTTP-date format: "Wed, 21 Oct 2015 07:28:00 GMT"
+        if let Ok(datetime) = httpdate::parse_http_date(value) {
+            let now = std::time::SystemTime::now();
+            let delay = datetime.duration_since(now).unwrap_or_default();
+            return Some(delay.as_millis().min(120_000) as u64);
+        }
+
+        None
+    }
+
+    /// Extract Retry-After milliseconds from error string.
+    fn extract_retry_after_ms(error: &str) -> Option<u64> {
+        error.strip_prefix("RATE_LIMITED_RETRY_AFTER:")?.parse().ok()
     }
 }
 

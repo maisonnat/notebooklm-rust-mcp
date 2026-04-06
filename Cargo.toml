@@ -23,6 +23,7 @@ url = "2"
 tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"
 scraper = "0.26"
+httpdate = "1"
 
 # Phase 6: Browser-based authentication
 # headless_chrome: Automate Chrome via CDP for browser automation

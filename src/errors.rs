@@ -38,6 +38,8 @@ pub enum NotebookLmError {
     DownloadFailed(String),
     /// Falló la generación del artefacto (no rate-limit)
     GenerationFailed(String),
+    /// Circuit breaker abierto — demasiados errores de auth consecutivos
+    CircuitOpen(String),
 }
 
 impl fmt::Display for NotebookLmError {
@@ -81,6 +83,11 @@ impl fmt::Display for NotebookLmError {
             NotebookLmError::GenerationFailed(msg) => {
                 write!(f, "GENERACIÓN FALLIDA: {}", msg)
             }
+            NotebookLmError::CircuitOpen(msg) => write!(
+                f,
+                "CIRCUIT BREAKER ABIERTO: {}. Ejecuta `notebooklm-mcp auth-browser` para re-autenticar.",
+                msg
+            ),
         }
     }
 }
@@ -143,6 +150,8 @@ impl NotebookLmError {
             NotebookLmError::NetworkError(s)
         } else if lower.contains("session") {
             NotebookLmError::SessionExpired(s)
+        } else if lower.contains("circuit") || lower.contains("breaker") {
+            NotebookLmError::CircuitOpen(s)
         } else {
             NotebookLmError::Unknown(s)
         }
@@ -155,7 +164,10 @@ impl NotebookLmError {
 
     /// Verifica si es un error que requiere actualizar credenciales
     pub fn requires_new_credentials(&self) -> bool {
-        matches!(self, NotebookLmError::SessionExpired(_))
+        matches!(
+            self,
+            NotebookLmError::SessionExpired(_) | NotebookLmError::CircuitOpen(_)
+        )
     }
 }
 
@@ -418,5 +430,33 @@ mod tests {
         // plain "not found" → FileNotFound (backward compatible)
         let err = NotebookLmError::from_string("File not found: /path/to/file".to_string());
         assert!(matches!(err, NotebookLmError::FileNotFound(_)));
+    }
+
+    // =========================================================================
+    // Module 6 — Circuit breaker error variant tests
+    // =========================================================================
+
+    #[test]
+    fn test_circuit_open_display() {
+        let err = NotebookLmError::CircuitOpen("3 consecutive auth errors".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("CIRCUIT BREAKER ABIERTO"));
+        assert!(msg.contains("auth-browser"));
+    }
+
+    #[test]
+    fn test_circuit_open_requires_new_credentials() {
+        let err = NotebookLmError::CircuitOpen("test".to_string());
+        assert!(err.requires_new_credentials());
+    }
+
+    #[test]
+    fn test_from_string_detects_circuit_open() {
+        let err = NotebookLmError::from_string("Circuit breaker is open".to_string());
+        assert!(matches!(err, NotebookLmError::CircuitOpen(_)));
+
+        let err2 =
+            NotebookLmError::from_string("circuit breaker opened after 3 errors".to_string());
+        assert!(matches!(err2, NotebookLmError::CircuitOpen(_)));
     }
 }

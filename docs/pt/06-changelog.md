@@ -1,13 +1,26 @@
 ---
 title: "Changelog — NotebookLM MCP Server"
 repo: "notebooklm-rust-mcp"
-version: "0.1.0"
+version: "0.3.1"
 last_updated: "2026-04-06"
 lang: pt
 scan_type: full
 ---
 
 # Registro de Alterações
+
+## [0.3.1] — 2026-04-06
+
+### Módulo 6: Reforço Anti-detecção
+
+- **Falsificação de impressão digital do navegador**: 12 headers HTTP estilo Chrome injetados em todas as requisições batchexecute (User-Agent, Sec-Fetch-*, Sec-CH-UA, Origin, Referer, Accept-*)
+- **Circuit breaker**: interrompe requisições após 3 erros de autenticação consecutivos, reabre automaticamente após 60s de resfriamento
+- **Renovação automática de CSRF**: renovação silenciosa de tokens em erros 401/400/403 com `tokio::sync::Mutex` para coordenação concorrente
+- **Correção do backoff exponencial**: corrigido `1^x` (sempre 1) para `2^x` (exponencial real: 2, 4, 8, 16s...)
+- **Jitter simulando humano**: aumentado de 150-600ms para 800-2000ms para simular melhor a temporização humana
+- **Suporte a Retry-After**: respeita o header `Retry-After` do Google em respostas 429 (segundos inteiros + data HTTP)
+- **Nova dependência**: `httpdate` para parsing de datas Retry-After
+- 342 testes, 0 avisos do clippy
 
 ## [0.3.0] — 2026-04-06
 

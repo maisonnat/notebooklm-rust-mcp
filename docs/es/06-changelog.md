@@ -9,6 +9,19 @@ scan_type: full
 
 # Registro de Cambios
 
+## [0.3.1] — 2026-04-06
+
+### Módulo 6: Endurecimiento Anti-Detección
+
+- **Suplantación de huella del navegador**: 12 headers HTTP tipo Chrome inyectados en todas las solicitudes batchexecute (User-Agent, Sec-Fetch-*, Sec-CH-UA, Origin, Referer, Accept-*)
+- **Circuit breaker**: detiene solicitudes tras 3 errores de autenticación consecutivos, se reabre automáticamente tras 60s de enfriamiento
+- **Auto-refresh de CSRF**: refresh silencioso de tokens en 401/400/403 con `tokio::sync::Mutex` para coordinación concurrente
+- **Corrección de backoff exponencial**: corregido `1^x` (siempre 1) a `2^x` (exponencial real: 2, 4, 8, 16s...)
+- **Jitter tipo humano**: incrementado de 150-600ms a 800-2000ms para simular mejor el ritmo humano
+- **Soporte de Retry-After**: respeta el header `Retry-After` de Google en respuestas 429 (segundos enteros + fecha HTTP)
+- **Nueva dependencia**: `httpdate` para parseo de fechas Retry-After
+- 342 tests, 0 advertencias de clippy
+
 ## [0.3.0] — 2026-04-06
 
 ### Módulo 5: Funcionalidades Avanzadas
@@ -27,7 +40,7 @@ scan_type: full
 
 ### Módulo 4: Ciclo de Vida de Notebooks y Compartido
 
-- **CRUD de Notebooks**: Herramientas `notebook_delete`, `notebook_get`, `notebook_rename`
+- **CRUD de notebooks**: Herramientas `notebook_delete`, `notebook_get`, `notebook_rename`
 - **Resumen IA**: `notebook_summary` — resumen generado por IA + temas sugeridos
 - **Compartido**: `notebook_share_status`, `notebook_share_set` — alternar público/privado, ver usuarios compartidos
 - **Lectura post-mutación**: Las operaciones de escritura devuelven estado autoritativo confirmado
@@ -77,7 +90,7 @@ scan_type: full
 ### Seguridad
 
 - Cero bloques `unsafe`
-- `cargo-audit`: 0 vulnerabilidades (334 dependencias)
+- `cargo-audit`: 0 vulnerabilidades (334 deps)
 - TLS vía rustls (sin OpenSSL)
 
 > **[English](../en/06-changelog.md)** · **[Português](../pt/06-changelog.md)**

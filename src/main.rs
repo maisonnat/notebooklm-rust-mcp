@@ -459,6 +459,7 @@ pub mod artifact_poller;
 pub mod auth_helper;
 pub mod conversation_cache;
 pub mod auth_browser;
+pub mod browser_headers;
 pub mod rpc;
 use notebooklm_client::NotebookLmClient;
 

@@ -9,6 +9,19 @@ scan_type: full
 
 # Changelog
 
+## [0.3.1] — 2026-04-06
+
+### Module 6: Anti-Detection Hardening
+
+- **Browser fingerprint spoofing**: 12 Chrome-like HTTP headers injected on all batchexecute requests (User-Agent, Sec-Fetch-*, Sec-CH-UA, Origin, Referer, Accept-*)
+- **Circuit breaker**: stops requests after 3 consecutive auth errors, auto-reopens after 60s cooldown
+- **Auto CSRF refresh**: silent token refresh on 401/400/403 with `tokio::sync::Mutex` for concurrent coordination
+- **Exponential backoff fix**: corrected `1^x` (always 1) to `2^x` (actual exponential: 2, 4, 8, 16s...)
+- **Human-like jitter**: increased from 150-600ms to 800-2000ms to better simulate human timing
+- **Retry-After support**: respects Google's `Retry-After` header on 429 responses (integer seconds + HTTP-date)
+- **New dependency**: `httpdate` for Retry-After date parsing
+- 342 tests, 0 clippy warnings
+
 ## [0.3.0] — 2026-04-06
 
 ### Module 5: Advanced Features
