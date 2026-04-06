@@ -38,6 +38,8 @@ use crate::parser::{
     extract_report_content, parse_data_table,
     extract_app_data,
     is_mind_map_item, extract_mind_map_json,
+    // Fulltext extraction
+    extract_all_text,
 };
 
 // Re-exportar errores para uso externo
@@ -372,6 +374,135 @@ impl NotebookLmClient {
         let inner_json = format!("[[\"{}\"],[2]]", notebook_id);
         self.batchexecute("WWINqb", &inner_json).await?;
         info!("Deleted notebook {}", notebook_id);
+        Ok(())
+    }
+
+    /// Delete a source from a notebook. Idempotent — Google does not error on non-existent sources.
+    ///
+    /// RPC: `tGMBJ`, payload: `[[[source_id]]]`
+    pub async fn delete_source(&self, notebook_id: &str, source_id: &str) -> Result<(), String> {
+        let inner_json = format!("[[[\"{}\"]]]", source_id);
+        self.batchexecute("tGMBJ", &inner_json).await?;
+        info!("Deleted source {} from notebook {}", source_id, notebook_id);
+        Ok(())
+    }
+
+    /// Rename a source in a notebook.
+    ///
+    /// RPC: `b7Wfje`, payload: `[null, [source_id], [[[new_title]]]]`
+    pub async fn rename_source(&self, notebook_id: &str, source_id: &str, new_title: &str) -> Result<(), String> {
+        let t = new_title.replace('\"', "\\\"");
+        let inner_json = format!("[null,[\"{}\"],[[[\"{}\"]]]]", source_id, t);
+        self.batchexecute("b7Wfje", &inner_json).await?;
+        info!("Renamed source {} to '{}' in notebook {}", source_id, new_title, notebook_id);
+        Ok(())
+    }
+
+    /// Get the full indexed text of a source (extracted by Google from PDFs, web pages, etc.).
+    ///
+    /// RPC: `hizoJc`, payload: `[[source_id], [2], [2]]`
+    pub async fn get_source_fulltext(&self, _notebook_id: &str, source_id: &str) -> Result<String, String> {
+        let inner_json = format!("[[\"{}\"],[2],[2]]", source_id);
+        let response = self.batchexecute("hizoJc", &inner_json).await?;
+
+        let inner = extract_by_rpc_id(&response, "hizoJc")
+            .ok_or("No se encontró respuesta hizoJc")?;
+
+        // Google returns text fragments nested in result[3][0] — use recursive extractor
+        let fragments = extract_all_text(&inner, 0, 10);
+        if fragments.is_empty() {
+            return Err("No se pudo extraer texto de la fuente. ¿La fuente está indexada?".to_string());
+        }
+
+        Ok(fragments.join("\n"))
+    }
+
+    // ── Notes CRUD ──────────────────────────────────────────────────────
+
+    /// Create a note in a notebook (two-step: create empty, then update with content).
+    ///
+    /// Step 1 RPC: `CYK0Xb` — create empty note
+    /// Step 2 RPC: `cYAfTb` — update note with title and content
+    ///
+    /// Returns the note_id.
+    pub async fn create_note(&self, notebook_id: &str, title: &str, content: &str) -> Result<String, String> {
+        // Step 1: Create empty note
+        let create_payload = format!(
+            "[\"{}\",\"\",[1],null,\"New Note\"]",
+            notebook_id
+        );
+        let create_response = self.batchexecute("CYK0Xb", &create_payload).await?;
+
+        let create_inner = extract_by_rpc_id(&create_response, "CYK0Xb")
+            .ok_or("No se encontró respuesta CYK0Xb al crear nota")?;
+
+        // Extract note_id from response
+        let arr = create_inner.as_array().ok_or("CYK0Xb response no es array")?;
+        let first = arr.first().ok_or("CYK0Xb array vacío")?.as_array().ok_or("CYK0Xb no es array anidado")?;
+        let note_id = get_string_at(first, 0)
+            .ok_or("No se pudo extraer note_id de la respuesta CYK0Xb")?;
+
+        info!("Created empty note {} in notebook {}", note_id, notebook_id);
+
+        // Step 2: Update note with title and content
+        let t = title.replace('\"', "\\\"");
+        let c = content.replace('\"', "\\\"");
+        let update_payload = format!(
+            "[\"{}\",\"{}\",[[[\"{}\",\"{}\",[],0]]]]",
+            notebook_id, note_id, c, t
+        );
+        self.batchexecute("cYAfTb", &update_payload).await?;
+
+        info!("Updated note {} with title '{}' in notebook {}", note_id, title, notebook_id);
+        Ok(note_id)
+    }
+
+    /// List all active notes in a notebook (filters out soft-deleted notes with status=2).
+    ///
+    /// RPC: `cFji9`, payload: `[notebook_id]`
+    pub async fn list_notes(&self, notebook_id: &str) -> Result<Vec<crate::rpc::notes::Note>, String> {
+        let inner_json = format!("[\"{}\"]", notebook_id);
+        let response = self.batchexecute("cFji9", &inner_json).await?;
+
+        let inner = extract_by_rpc_id(&response, "cFji9")
+            .ok_or("No se encontró respuesta cFji9")?;
+
+        let arr = inner.as_array().ok_or("cFji9 response no es array")?;
+        let mut notes = Vec::new();
+
+        for item in arr {
+            // Skip soft-deleted notes (status == 2)
+            // Format: ["note_id", null, status, ...]
+            if let Some(item_arr) = item.as_array() {
+                if item_arr.len() > 2
+                    && let Some(status) = item_arr[2].as_i64()
+                    && status == 2
+                {
+                    continue; // Skip deleted
+                }
+                if let Some(note_id) = get_string_at(item_arr, 0) {
+                    let title = get_string_at_or_default(item_arr, 1, "Untitled");
+                    // Content is typically in index 3 or 4 — try both
+                    let content = get_string_at_or_default(item_arr, 3, "");
+                    notes.push(crate::rpc::notes::Note {
+                        id: note_id,
+                        title,
+                        content,
+                    });
+                }
+            }
+        }
+
+        Ok(notes)
+    }
+
+    /// Soft-delete a note from a notebook (sets status to 2).
+    ///
+    /// RPC: `AH0mwd`, payload: `[notebook_id, null, [note_id]]`
+    pub async fn delete_note(&self, notebook_id: &str, note_id: &str) -> Result<(), String> {
+        let inner_json = format!("[\"{}\",null,[\"{}\"]]", notebook_id, note_id);
+        self.batchexecute("AH0mwd", &inner_json).await?;
+        info!("Deleted note {} from notebook {}", note_id, notebook_id);
         Ok(())
     }
 
@@ -1674,6 +1805,120 @@ impl NotebookLmClient {
 
         info!("Mind map written to {}", output_path);
         Ok(output_path.to_string())
+    }
+
+    // =====================================================================
+    // Module 5 — Chat History Sync (Phase 4)
+    // =====================================================================
+
+    /// Get the last conversation ID from Google servers for a notebook.
+    /// RPC: `hPTbtc`, payload: `[[], null, notebook_id, 1]`
+    /// Response: `[[[conv_id]]]` — triple-nested string
+    pub async fn get_last_conversation_id(&self, notebook_id: &str) -> Result<Option<String>, String> {
+        let inner_json = format!("[[],null,\"{}\",1]", notebook_id);
+        let response = self.batchexecute("hPTbtc", &inner_json).await?;
+        let inner = extract_by_rpc_id(&response, "hPTbtc").ok_or("No se encontró respuesta hPTbtc")?;
+        let arr = inner.as_array().ok_or("hPTbtc no es array")?;
+        let first = arr.first().ok_or("hPTbtc array vacío")?.as_array().ok_or("hPTbtc no es array anidado")?;
+        let second = first.first().ok_or("hPTbtc doble anidado vacío")?.as_array().ok_or("hPTbtc triple anidado no es array")?;
+        match get_string_at(second, 0) {
+            Some(id) if !id.is_empty() => Ok(Some(id)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Get conversation turns from Google servers.
+    /// RPC: `khqZz`, payload: `[[], null, null, conversation_id, limit]`
+    /// Returns turns in chronological order (oldest first). Google returns newest-first.
+    pub async fn get_conversation_turns(&self, _notebook_id: &str, conversation_id: &str, limit: u32) -> Result<Vec<crate::rpc::notes::ChatTurn>, String> {
+        let inner_json = format!("[[],null,null,\"{}\",{}]", conversation_id, limit);
+        let response = self.batchexecute("khqZz", &inner_json).await?;
+        let inner = extract_by_rpc_id(&response, "khqZz").ok_or("No se encontró respuesta khqZz")?;
+        let arr = inner.as_array().ok_or("khqZz no es array")?;
+        let mut turns = Vec::new();
+        for turn in arr {
+            if let Some(turn_arr) = turn.as_array()
+                && turn_arr.len() > 4
+            {
+                let role_code = turn_arr.get(2).and_then(|v| v.as_i64()).unwrap_or(0);
+                let (role, text) = if role_code == 1 {
+                    ("user".to_string(), get_string_at_or_default(turn_arr, 3, ""))
+                } else if role_code == 2 {
+                    let ai_text = turn_arr.get(4)
+                        .and_then(|v| v.as_array())
+                        .and_then(|a| a.first())
+                        .and_then(|v| v.as_array())
+                        .and_then(|a| a.first())
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    ("assistant".to_string(), ai_text.to_string())
+                } else {
+                    continue;
+                };
+                turns.push(crate::rpc::notes::ChatTurn { role, text });
+            }
+        }
+        turns.reverse();
+        Ok(turns)
+    }
+
+    // =====================================================================
+    // Module 5 — Deep Research (Phase 5)
+    // =====================================================================
+
+    /// Start a deep research task on Google's servers.
+    /// RPC: `QA9ei`, payload: `[null, [1], [query, 1], 5, notebook_id]`
+    /// Returns task_id for polling.
+    pub async fn start_deep_research(&self, notebook_id: &str, query: &str) -> Result<String, String> {
+        let q = query.replace('\"', "\\\"");
+        let inner_json = format!("[null,[1],[\"{}\",1],5,\"{}\"]", q, notebook_id);
+        let response = self.batchexecute("QA9ei", &inner_json).await?;
+        let inner = extract_by_rpc_id(&response, "QA9ei").ok_or("No se encontró respuesta QA9ei")?;
+        if let Some(id) = get_string_at(inner.as_array().ok_or("QA9ei no es array")?, 0) {
+            return Ok(id);
+        }
+        let arr = inner.as_array().ok_or("QA9ei no es array")?;
+        if let Some(first) = arr.first().and_then(|v| v.as_str()) {
+            return Ok(first.to_string());
+        }
+        Err("No se pudo extraer task_id de QA9ei".to_string())
+    }
+
+    /// Poll the status of a deep research task.
+    /// RPC: `e3bVqc`, payload: `[null, null, notebook_id]`
+    pub async fn poll_research_status(&self, notebook_id: &str, task_id: &str) -> Result<crate::rpc::notes::ResearchStatus, String> {
+        let inner_json = format!("[null,null,\"{}\"]", notebook_id);
+        let response = self.batchexecute("e3bVqc", &inner_json).await?;
+        let inner = extract_by_rpc_id(&response, "e3bVqc").ok_or("No se encontró respuesta e3bVqc")?;
+        if let Some(arr) = inner.as_array() {
+            for item in arr {
+                if let Some(item_arr) = item.as_array()
+                    && let Some(id) = get_string_at(item_arr, 0)
+                    && id == task_id
+                {
+                    let code = item_arr.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+                    return Ok(crate::rpc::notes::ResearchStatus {
+                        status_code: code,
+                        sources: Vec::new(),
+                        is_complete: code == 2 || code == 6,
+                    });
+                }
+            }
+        }
+        Ok(crate::rpc::notes::ResearchStatus {
+            status_code: 0,
+            sources: Vec::new(),
+            is_complete: false,
+        })
+    }
+
+    /// Import discovered sources from a completed deep research task into a notebook.
+    /// RPC: `LBwxtb`
+    pub async fn import_research_sources(&self, notebook_id: &str, _task_id: &str, sources: serde_json::Value) -> Result<(), String> {
+        let inner_json = serde_json::to_string(&sources).map_err(|e| format!("Failed to serialize research sources: {}", e))?;
+        self.batchexecute("LBwxtb", &inner_json).await?;
+        info!("Imported research sources into notebook {}", notebook_id);
+        Ok(())
     }
 
     /// Check if the RPC response indicates rate limiting.

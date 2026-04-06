@@ -622,6 +622,40 @@ pub fn extract_report_content(artifact_data: &Value) -> Option<String> {
     Some(content.to_string())
 }
 
+/// Recursively extract all string fragments from a nested JSON value.
+///
+/// Used for fulltext extraction where Google returns text scattered across
+/// deeply nested arrays at arbitrary depths.
+///
+/// - Strings → collected (empty strings skipped)
+/// - Arrays → recurse into children
+/// - Other types (Number, Object, Bool, Null) → skipped
+///
+/// Stops recursing when `current_depth >= max_depth` to prevent infinite recursion.
+pub fn extract_all_text(val: &Value, current_depth: u32, max_depth: u32) -> Vec<String> {
+    if current_depth >= max_depth {
+        return Vec::new();
+    }
+
+    match val {
+        Value::String(s) => {
+            if s.is_empty() {
+                Vec::new()
+            } else {
+                vec![s.clone()]
+            }
+        }
+        Value::Array(arr) => {
+            let mut result = Vec::new();
+            for item in arr {
+                result.extend(extract_all_text(item, current_depth + 1, max_depth));
+            }
+            result
+        }
+        Value::Object(_) | Value::Number(_) | Value::Bool(_) | Value::Null => Vec::new(),
+    }
+}
+
 /// Recursively extract text from a nested data table cell.
 ///
 /// Data table cells have deeply nested arrays with position markers
@@ -905,6 +939,55 @@ pub fn extract_mind_map_json(item: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_all_text_simple_string() {
+        let val = serde_json::json!("hello world");
+        let result = extract_all_text(&val, 0, 10);
+        assert_eq!(result, vec!["hello world"]);
+    }
+
+    #[test]
+    fn test_extract_all_text_nested_arrays() {
+        let val = serde_json::json!([["hello", ["world"]], "foo"]);
+        let result = extract_all_text(&val, 0, 10);
+        assert_eq!(result, vec!["hello", "world", "foo"]);
+    }
+
+    #[test]
+    fn test_extract_all_text_three_levels_deep() {
+        let val = serde_json::json!([[["deep"]]]);
+        let result = extract_all_text(&val, 0, 10);
+        assert_eq!(result, vec!["deep"]);
+    }
+
+    #[test]
+    fn test_extract_all_text_max_depth_stops_recursion() {
+        let val = serde_json::json!([[[["too deep"]]]]);
+        let result = extract_all_text(&val, 0, 2);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_all_text_skips_numbers_and_nulls() {
+        let val = serde_json::json!([42, null, true, "text", {"key": "val"}]);
+        let result = extract_all_text(&val, 0, 10);
+        assert_eq!(result, vec!["text"]);
+    }
+
+    #[test]
+    fn test_extract_all_text_skips_empty_strings() {
+        let val = serde_json::json!(["hello", "", "world"]);
+        let result = extract_all_text(&val, 0, 10);
+        assert_eq!(result, vec!["hello", "world"]);
+    }
+
+    #[test]
+    fn test_extract_all_text_empty_array() {
+        let val = serde_json::json!([]);
+        let result = extract_all_text(&val, 0, 10);
+        assert!(result.is_empty());
+    }
 
     #[test]
     fn test_strip_antixssi_prefix_with_newline() {

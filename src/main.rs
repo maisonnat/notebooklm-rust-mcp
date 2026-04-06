@@ -199,6 +199,84 @@ enum Commands {
         #[arg(long, group = "visibility")]
         private: bool,
     },
+    /// Eliminar una fuente de una libreta
+    SourceDelete {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// ID de la fuente a eliminar
+        #[arg(long)]
+        source_id: String,
+    },
+    /// Renombrar una fuente de una libreta
+    SourceRename {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// ID de la fuente a renombrar
+        #[arg(long)]
+        source_id: String,
+        /// Nuevo título para la fuente
+        #[arg(long)]
+        new_title: String,
+    },
+    /// Extraer el texto completo indexado de una fuente
+    SourceGetFulltext {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// ID de la fuente
+        #[arg(long)]
+        source_id: String,
+    },
+    /// Crear una nota en una libreta
+    NoteCreate {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// Título de la nota
+        #[arg(long)]
+        title: String,
+        /// Contenido de la nota
+        #[arg(long)]
+        content: String,
+    },
+    /// Listar notas activas de una libreta
+    NoteList {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+    },
+    /// Eliminar una nota de una libreta (soft-delete)
+    NoteDelete {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// ID de la nota
+        #[arg(long)]
+        note_id: String,
+    },
+    /// Obtener historial de chat oficial de Google para una libreta
+    ChatHistory {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// Cantidad máxima de turns a obtener (default: 20)
+        #[arg(long)]
+        limit: Option<u32>,
+    },
+    /// Iniciar investigación profunda (Deep Research) en una libreta
+    Research {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// Query de investigación
+        #[arg(long)]
+        query: String,
+        /// Timeout en segundos (default: 300)
+        #[arg(long)]
+        timeout_secs: Option<u64>,
+    },
 }
 
 use rmcp::{
@@ -321,6 +399,56 @@ pub struct NotebookShareStatusRequest {
 pub struct NotebookShareSetRequest {
     pub notebook_id: String,
     pub public: bool,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SourceDeleteRequest {
+    pub notebook_id: String,
+    pub source_id: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SourceRenameRequest {
+    pub notebook_id: String,
+    pub source_id: String,
+    pub new_title: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SourceGetFulltextRequest {
+    pub notebook_id: String,
+    pub source_id: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct NoteCreateRequest {
+    pub notebook_id: String,
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct NoteListRequest {
+    pub notebook_id: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct NoteDeleteRequest {
+    pub notebook_id: String,
+    pub note_id: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct ChatHistoryRequest {
+    pub notebook_id: String,
+    pub limit: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct ResearchDeepDiveRequest {
+    pub notebook_id: String,
+    pub query: String,
+    pub timeout_secs: Option<u64>,
 }
 
 pub mod notebooklm_client;
@@ -673,6 +801,182 @@ impl NotebookLmServer {
             }
         } else {
             "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "source_delete", description = "Delete a source from a notebook. Idempotent — does not error if the source doesn't exist.")]
+    pub async fn source_delete(&self, req: Parameters<SourceDeleteRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.delete_source(&request.notebook_id, &request.source_id).await {
+                Ok(()) => format!("✅ Fuente {} eliminada del cuaderno {}", request.source_id, request.notebook_id),
+                Err(e) => format!("Error eliminando fuente: {}", e)
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "source_rename", description = "Rename a source in a notebook. Returns confirmation.")]
+    pub async fn source_rename(&self, req: Parameters<SourceRenameRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.rename_source(&request.notebook_id, &request.source_id, &request.new_title).await {
+                Ok(()) => format!("✅ Fuente {} renombrada a '{}' en cuaderno {}", request.source_id, request.new_title, request.notebook_id),
+                Err(e) => format!("Error renombrando fuente: {}", e)
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "source_get_fulltext", description = "Get the full indexed text of a source (extracted by Google from PDFs, web pages, etc.). Returns the complete text content.")]
+    pub async fn source_get_fulltext(&self, req: Parameters<SourceGetFulltextRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.get_source_fulltext(&request.notebook_id, &request.source_id).await {
+                Ok(text) => text,
+                Err(e) => format!("Error extrayendo texto de fuente: {}", e)
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "note_create", description = "Create a note in a notebook with a title and content. Notes are visible in the NotebookLM web UI.")]
+    pub async fn note_create(&self, req: Parameters<NoteCreateRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.create_note(&request.notebook_id, &request.title, &request.content).await {
+                Ok(id) => format!("✅ Nota creada. ID: {}", id),
+                Err(e) => format!("Error creando nota: {}", e)
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "note_list", description = "List all active notes in a notebook (excludes soft-deleted notes).")]
+    pub async fn note_list(&self, req: Parameters<NoteListRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.list_notes(&request.notebook_id).await {
+                Ok(notes) => {
+                    if notes.is_empty() {
+                        "No hay notas en este cuaderno.".to_string()
+                    } else {
+                        notes.iter().map(|n| format!("- [{}] {}", n.id, n.title)).collect::<Vec<_>>().join("\n")
+                    }
+                },
+                Err(e) => format!("Error listando notas: {}", e)
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "note_delete", description = "Delete a note from a notebook (soft-delete).")]
+    pub async fn note_delete(&self, req: Parameters<NoteDeleteRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.delete_note(&request.notebook_id, &request.note_id).await {
+                Ok(()) => format!("✅ Nota {} eliminada del cuaderno {}", request.note_id, request.notebook_id),
+                Err(e) => format!("Error eliminando nota: {}", e)
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "chat_history", description = "Get the official chat conversation history from Google servers for a notebook. Returns turns in chronological order.")]
+    pub async fn chat_history(&self, req: Parameters<ChatHistoryRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            let limit = request.limit.unwrap_or(20);
+            match c.get_last_conversation_id(&request.notebook_id).await {
+                Ok(Some(conv_id)) => {
+                    match c.get_conversation_turns(&request.notebook_id, &conv_id, limit).await {
+                        Ok(turns) => {
+                            if turns.is_empty() {
+                                format!("No conversation history found for notebook {} (conv_id: {})", request.notebook_id, conv_id)
+                            } else {
+                                let lines: Vec<String> = turns.iter().map(|t| {
+                                    format!("[{}] {}", t.role, t.text)
+                                }).collect();
+                                format!("Chat history ({} turns, conv_id: {}):\n{}", turns.len(), conv_id, lines.join("\n\n"))
+                            }
+                        },
+                        Err(e) => format!("Error getting conversation turns: {}", e)
+                    }
+                },
+                Ok(None) => format!("No conversation found for notebook {}", request.notebook_id),
+                Err(e) => format!("Error getting conversation ID: {}", e)
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "research_deep_dive", description = "Start a deep research investigation using Google's autonomous research engine. Blocks until complete (up to timeout), then imports discovered sources into the notebook.")]
+    pub async fn research_deep_dive(&self, req: Parameters<ResearchDeepDiveRequest>) -> String {
+        let request = req.0;
+        let timeout = request.timeout_secs.unwrap_or(300);
+        let notebook_id = request.notebook_id.clone();
+        let query = request.query.clone();
+
+        let task_id = {
+            let lock = self.state.read().await;
+            if let Some(c) = &*lock {
+                match c.start_deep_research(&notebook_id, &query).await {
+                    Ok(id) => id,
+                    Err(e) => return format!("Error starting deep research: {}", e),
+                }
+            } else {
+                return "Error: Servidor no autenticado".into();
+            }
+        };
+
+        info!("Deep research started. Task ID: {}. Timeout: {}s", task_id, timeout);
+
+        let start = std::time::Instant::now();
+        loop {
+            if start.elapsed().as_secs() >= timeout {
+                return format!("Deep research timed out after {}s. Task ID: {}", timeout, task_id);
+            }
+
+            let status = {
+                let lock = self.state.read().await;
+                if let Some(c) = &*lock {
+                    match c.poll_research_status(&notebook_id, &task_id).await {
+                        Ok(s) => s,
+                        Err(e) => return format!("Error polling research status: {}", e),
+                    }
+                } else {
+                    return "Error: Servidor no autenticado".into();
+                }
+            };
+
+            if status.is_complete {
+                let lock = self.state.read().await;
+                if let Some(c) = &*lock {
+                    match c.import_research_sources(&notebook_id, &task_id, serde_json::json!([])).await {
+                        Ok(()) => return format!("✅ Deep research complete. Sources imported. Task ID: {}", task_id),
+                        Err(e) => return format!("Research complete but failed to import sources: {}", e),
+                    }
+                } else {
+                    return "Error: Servidor no autenticado".into();
+                }
+            }
+
+            info!("Research status: code={} — polling in 5s...", status.status_code);
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }
 }
@@ -1416,6 +1720,151 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
             Err(e) => error!("Error configurando compartido: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::SourceDelete { notebook_id, source_id }) = &cli.command {
+        info!("Eliminando fuente {} del notebook {}...", source_id, notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.delete_source(notebook_id, source_id).await {
+            Ok(()) => println!("\n✅ Fuente {} eliminada del cuaderno {}", source_id, notebook_id),
+            Err(e) => error!("Error eliminando fuente: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::SourceRename { notebook_id, source_id, new_title }) = &cli.command {
+        info!("Renombrando fuente {} a '{}' en notebook {}...", source_id, new_title, notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.rename_source(notebook_id, source_id, new_title).await {
+            Ok(()) => println!("\n✅ Fuente {} renombrada a '{}' en cuaderno {}", source_id, new_title, notebook_id),
+            Err(e) => error!("Error renombrando fuente: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::SourceGetFulltext { notebook_id, source_id }) = &cli.command {
+        info!("Extrayendo texto completo de fuente {} en notebook {}...", source_id, notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.get_source_fulltext(notebook_id, source_id).await {
+            Ok(text) => println!("\n📄 Fulltext de fuente {}:\n{}", source_id, text),
+            Err(e) => error!("Error extrayendo texto: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::NoteCreate { notebook_id, title, content }) = &cli.command {
+        info!("Creando nota en notebook {}...", notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.create_note(notebook_id, title, content).await {
+            Ok(id) => println!("\n✅ Nota creada. ID: {}", id),
+            Err(e) => error!("Error creando nota: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::NoteList { notebook_id }) = &cli.command {
+        info!("Listando notas del notebook {}...", notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.list_notes(notebook_id).await {
+            Ok(notes) => {
+                if notes.is_empty() {
+                    println!("\nNo hay notas en este cuaderno.");
+                } else {
+                    println!("\n📝 Notas ({}):", notes.len());
+                    for n in &notes {
+                        println!("  - [{}] {}{}", n.id, n.title, if n.content.is_empty() { String::new() } else { format!(": {}", &n.content[..n.content.len().min(80)]) });
+                    }
+                }
+            },
+            Err(e) => error!("Error listando notas: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::NoteDelete { notebook_id, note_id }) = &cli.command {
+        info!("Eliminando nota {} del notebook {}...", note_id, notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.delete_note(notebook_id, note_id).await {
+            Ok(()) => println!("\n✅ Nota {} eliminada del cuaderno {}", note_id, notebook_id),
+            Err(e) => error!("Error eliminando nota: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::ChatHistory { notebook_id, limit }) = &cli.command {
+        info!("Obteniendo historial de chat del notebook {}...", notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+        let limit_val = limit.unwrap_or(20);
+
+        match client.get_last_conversation_id(notebook_id).await {
+            Ok(Some(conv_id)) => {
+                match client.get_conversation_turns(notebook_id, &conv_id, limit_val).await {
+                    Ok(turns) => {
+                        if turns.is_empty() {
+                            println!("\nNo conversation history found (conv_id: {})", conv_id);
+                        } else {
+                            println!("\n=== CHAT HISTORY ({} turns, conv_id: {}) ===", turns.len(), conv_id);
+                            for t in &turns {
+                                println!("\n[{}]", t.role);
+                                println!("{}", t.text);
+                            }
+                        }
+                    },
+                    Err(e) => error!("Error obteniendo turns: {}", e)
+                }
+            },
+            Ok(None) => println!("\nNo se encontró conversación para el notebook {}", notebook_id),
+            Err(e) => error!("Error obteniendo conversation ID: {}", e)
+        }
+        return Ok(());
+    }
+
+    if let Some(Commands::Research { notebook_id, query, timeout_secs }) = &cli.command {
+        info!("Iniciando deep research en notebook {}...", notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+        let timeout_val = timeout_secs.unwrap_or(300);
+
+        match client.start_deep_research(notebook_id, query).await {
+            Ok(task_id) => {
+                println!("\n=== DEEP RESEARCH INICIADO ===");
+                println!("Task ID: {}", task_id);
+                println!("Timeout: {}s", timeout_val);
+
+                let start = std::time::Instant::now();
+                loop {
+                    if start.elapsed().as_secs() >= timeout_val {
+                        println!("\n⏰ Timeout después de {}s. Task ID: {}", timeout_val, task_id);
+                        break;
+                    }
+
+                    match client.poll_research_status(notebook_id, &task_id).await {
+                        Ok(status) if status.is_complete => {
+                            match client.import_research_sources(notebook_id, &task_id, serde_json::json!([])).await {
+                                Ok(()) => println!("\n✅ Deep research completado. Fuentes importadas."),
+                                Err(e) => error!("Research completado pero error importando fuentes: {}", e),
+                            }
+                            break;
+                        },
+                        Ok(status) => {
+                            info!("Research status: code={} — esperando...", status.status_code);
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        },
+                        Err(e) => {
+                            error!("Error consultando status: {}", e);
+                            break;
+                        }
+                    }
+                }
+            },
+            Err(e) => error!("Error iniciando deep research: {}", e)
         }
         return Ok(());
     }
