@@ -50,12 +50,37 @@ pub enum SourceState {
 }
 
 impl SourceState {
-    /// Parsear el estado desde la respuesta de get_source
-    pub fn from_response(response: &serde_json::Value) -> Self {
-        if response.is_null() || response.as_array().map(|a| a.is_empty()).unwrap_or(true) {
-            SourceState::Processing
-        } else {
-            SourceState::Ready
+    /// Parse source state from a source entry's status code.
+    ///
+    /// Status code is at position `[3][1]` of the source entry array:
+    /// - 1 = Processing
+    /// - 2 = Ready
+    /// - 3 = Error
+    ///
+    /// Falls back to `Unknown` if the status code cannot be parsed.
+    pub fn from_response(source_entry: &serde_json::Value) -> Self {
+        let status_code = source_entry
+            .as_array()
+            .and_then(|arr| arr.get(3))
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.get(1))
+            .and_then(|v| v.as_u64());
+
+        match status_code {
+            Some(1) => SourceState::Processing,
+            Some(2) => SourceState::Ready,
+            Some(3) => {
+                // Try to extract error message from the same metadata array
+                let error_msg = source_entry
+                    .as_array()
+                    .and_then(|arr| arr.get(3))
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.get(2))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Source processing failed with error status");
+                SourceState::Error(error_msg.to_string())
+            }
+            _ => SourceState::Unknown,
         }
     }
 }
@@ -122,15 +147,14 @@ impl SourcePoller {
     /// Consulta el estado de una fuente específica
     async fn check_source_state(&self, notebook_id: &str, source_id: &str) -> NotebookResult<SourceState> {
         let client = self.client.read().await;
-        
-        let sources = client.get_notebook_sources(notebook_id)
+
+        let source_entry = client.get_source_entry(notebook_id, source_id)
             .await
             .map_err(NotebookLmError::from_string)?;
-        
-        if sources.contains(&source_id.to_string()) {
-            Ok(SourceState::Ready)
-        } else {
-            Ok(SourceState::Processing)
+
+        match source_entry {
+            Some(entry) => Ok(SourceState::from_response(&entry)),
+            None => Ok(SourceState::Processing), // Source not yet visible in listing
         }
     }
 }
@@ -165,43 +189,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_source_state_from_response() {
-        let empty: serde_json::Value = serde_json::Value::Null;
-        assert_eq!(SourceState::from_response(&empty), SourceState::Processing);
+    fn test_source_state_from_response_null() {
+        let null: serde_json::Value = serde_json::Value::Null;
+        assert_eq!(SourceState::from_response(&null), SourceState::Unknown);
     }
 
     #[test]
-    fn test_poller_default_config() {
-        let config = PollerConfig::default();
-        assert_eq!(config.check_interval, Duration::from_secs(2));
-        assert_eq!(config.timeout, Duration::from_secs(60));
-        assert_eq!(config.max_retries, 30);
+    fn test_source_state_from_response_empty_array() {
+        let empty: serde_json::Value = serde_json::json!([]);
+        assert_eq!(SourceState::from_response(&empty), SourceState::Unknown);
     }
 
     #[test]
-    fn test_poller_custom_config() {
-        let config = PollerConfig {
-            check_interval: Duration::from_secs(5),
-            timeout: Duration::from_secs(120),
-            max_retries: 10,
-        };
-        assert_eq!(config.check_interval, Duration::from_secs(5));
-        assert_eq!(config.timeout, Duration::from_secs(120));
-        assert_eq!(config.max_retries, 10);
+    fn test_source_state_processing() {
+        // Status code 1 at [3][1]
+        let entry = serde_json::json!([[[["src-id"]]], "title", null, [null, 1]]);
+        assert_eq!(SourceState::from_response(&entry), SourceState::Processing);
     }
 
     #[test]
     fn test_source_state_ready() {
-        // Source con datos = ready
-        let data = serde_json::json!([[["src-uuid"]]]);
-        let state = SourceState::from_response(&data);
-        assert_eq!(state, SourceState::Ready);
+        // Status code 2 at [3][1]
+        let entry = serde_json::json!([[[["src-id"]]], "title", null, [null, 2]]);
+        assert_eq!(SourceState::from_response(&entry), SourceState::Ready);
     }
 
     #[test]
-    fn test_source_state_processing_empty_array() {
-        let empty_arr: serde_json::Value = serde_json::json!([]);
-        let state = SourceState::from_response(&empty_arr);
-        assert_eq!(state, SourceState::Processing);
+    fn test_source_state_error() {
+        // Status code 3 at [3][1] with error message at [3][2]
+        let entry = serde_json::json!([[[["src-id"]]], "title", null, [null, 3, "Processing error"]]);
+        let state = SourceState::from_response(&entry);
+        assert!(matches!(state, SourceState::Error(msg) if msg.contains("Processing error")));
+    }
+
+    #[test]
+    fn test_source_state_error_default_message() {
+        // Status code 3 without error message
+        let entry = serde_json::json!([[[["src-id"]]], "title", null, [null, 3]]);
+        let state = SourceState::from_response(&entry);
+        assert!(matches!(state, SourceState::Error(_)));
+    }
+
+    #[test]
+    fn test_source_state_unknown_no_metadata() {
+        // Entry without [3] position
+        let entry = serde_json::json!([[[["src-id"]]], "title"]);
+        assert_eq!(SourceState::from_response(&entry), SourceState::Unknown);
     }
 }

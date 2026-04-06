@@ -24,6 +24,20 @@ pub enum NotebookLmError {
     NetworkError(String),
     /// Error genérico no categorizado
     Unknown(String),
+    /// Archivo no encontrado en disco (file upload)
+    FileNotFound(String),
+    /// Falló la subida del archivo (upload session o streaming)
+    UploadFailed(String),
+    /// Input inválido (path es directorio, formato incorrecto, etc.)
+    ValidationError(String),
+    /// Artefacto aún no completado — no se puede descargar
+    ArtifactNotReady(String),
+    /// Artefacto no encontrado en el notebook
+    ArtifactNotFound(String),
+    /// Error al descargar artefacto (HTTP o parsing)
+    DownloadFailed(String),
+    /// Falló la generación del artefacto (no rate-limit)
+    GenerationFailed(String),
 }
 
 impl fmt::Display for NotebookLmError {
@@ -50,6 +64,23 @@ impl fmt::Display for NotebookLmError {
             NotebookLmError::ParseError(msg) => write!(f, "ERROR DE PARSEO: {}", msg),
             NotebookLmError::NetworkError(msg) => write!(f, "ERROR DE RED: {}", msg),
             NotebookLmError::Unknown(msg) => write!(f, "ERROR DESCONOCIDO: {}", msg),
+            NotebookLmError::FileNotFound(msg) => write!(f, "ARCHIVO NO ENCONTRADO: {}", msg),
+            NotebookLmError::UploadFailed(msg) => write!(f, "ERROR DE SUBIDA: {}", msg),
+            NotebookLmError::ValidationError(msg) => write!(f, "VALIDACIÓN FALLIDA: {}", msg),
+            NotebookLmError::ArtifactNotReady(msg) => write!(
+                f,
+                "ARTEFACTO NO LISTO: {}. Esperar a que la generación complete.",
+                msg
+            ),
+            NotebookLmError::ArtifactNotFound(msg) => {
+                write!(f, "ARTEFACTO NO ENCONTRADO: {}", msg)
+            }
+            NotebookLmError::DownloadFailed(msg) => {
+                write!(f, "ERROR DE DESCARGA: {}", msg)
+            }
+            NotebookLmError::GenerationFailed(msg) => {
+                write!(f, "GENERACIÓN FALLIDA: {}", msg)
+            }
         }
     }
 }
@@ -61,12 +92,48 @@ impl NotebookLmError {
     pub fn from_string(s: String) -> Self {
         let lower = s.to_lowercase();
 
-        if lower.contains("401") || lower.contains("unauthorized") || lower.contains("session") {
+        if lower.contains("401") || lower.contains("unauthorized") {
             NotebookLmError::SessionExpired(s)
         } else if lower.contains("400") || lower.contains("csrf") || lower.contains("forbidden") {
             NotebookLmError::CsrfExpired(s)
         } else if lower.contains("429") || lower.contains("rate") || lower.contains("too many") {
             NotebookLmError::RateLimited(s)
+        } else if lower.contains("not found")
+            || lower.contains("no such file")
+            || lower.contains("file_not_found")
+            || lower.contains("artifact_not_found")
+        {
+            // Disambiguate: if it mentions artifact, use ArtifactNotFound; otherwise FileNotFound
+            if lower.contains("artifact") {
+                NotebookLmError::ArtifactNotFound(s)
+            } else {
+                NotebookLmError::FileNotFound(s)
+            }
+        } else if lower.contains("upload")
+            || lower.contains("upload_url")
+            || lower.contains("resumable")
+        {
+            NotebookLmError::UploadFailed(s)
+        } else if lower.contains("download")
+            || lower.contains("stream")
+            || lower.contains("write failed")
+        {
+            NotebookLmError::DownloadFailed(s)
+        } else if lower.contains("generation failed")
+            || lower.contains("artifact failed")
+            || lower.contains("generation_error")
+        {
+            NotebookLmError::GenerationFailed(s)
+        } else if lower.contains("not ready")
+            || lower.contains("still processing")
+            || lower.contains("artifact_not_ready")
+        {
+            NotebookLmError::ArtifactNotReady(s)
+        } else if lower.contains("validation")
+            || lower.contains("not a file")
+            || lower.contains("is a directory")
+        {
+            NotebookLmError::ValidationError(s)
         } else if lower.contains("parse") || lower.contains("json") {
             NotebookLmError::ParseError(s)
         } else if lower.contains("network")
@@ -74,6 +141,8 @@ impl NotebookLmError {
             || lower.contains("timeout")
         {
             NotebookLmError::NetworkError(s)
+        } else if lower.contains("session") {
+            NotebookLmError::SessionExpired(s)
         } else {
             NotebookLmError::Unknown(s)
         }
@@ -182,5 +251,172 @@ mod tests {
 
         let err_rate = NotebookLmError::RateLimited("too many".to_string());
         assert!(!err_rate.requires_new_credentials());
+    }
+
+    // =========================================================================
+    // 6.5 — New error variant detection tests
+    // =========================================================================
+
+    #[test]
+    fn test_error_detects_file_not_found() {
+        let forms = vec![
+            "File not found: /docs/research.pdf",
+            "No such file or directory",
+            "file_not_found error",
+        ];
+        for form in forms {
+            let err = NotebookLmError::from_string(form.to_string());
+            assert!(
+                matches!(err, NotebookLmError::FileNotFound(_)),
+                "Should detect FileNotFound from: {}",
+                form
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_detects_upload_failed() {
+        let forms = vec![
+            "Upload session failed",
+            "Response missing x-goog-upload-url header",
+            "File stream upload failed: connection reset",
+            "resumable upload error",
+        ];
+        for form in forms {
+            let err = NotebookLmError::from_string(form.to_string());
+            assert!(
+                matches!(err, NotebookLmError::UploadFailed(_)),
+                "Should detect UploadFailed from: {}",
+                form
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_detects_validation_error() {
+        let forms = vec![
+            "ValidationError: Path is a directory",
+            "Path is a directory, not a file: /tmp",
+            "validation failed: invalid input",
+        ];
+        for form in forms {
+            let err = NotebookLmError::from_string(form.to_string());
+            assert!(
+                matches!(err, NotebookLmError::ValidationError(_)),
+                "Should detect ValidationError from: {}",
+                form
+            );
+        }
+    }
+
+    #[test]
+    fn test_new_error_variants_display() {
+        let err = NotebookLmError::FileNotFound("/docs/research.pdf".to_string());
+        assert!(err.to_string().contains("ARCHIVO NO ENCONTRADO"));
+        assert!(err.to_string().contains("/docs/research.pdf"));
+
+        let err = NotebookLmError::UploadFailed("session start failed".to_string());
+        assert!(err.to_string().contains("ERROR DE SUBIDA"));
+
+        let err = NotebookLmError::ValidationError("path is directory".to_string());
+        assert!(err.to_string().contains("VALIDACIÓN FALLIDA"));
+    }
+
+    // =========================================================================
+    // Module 2 — Artifact error variant tests
+    // =========================================================================
+
+    #[test]
+    fn test_artifact_error_variants_display() {
+        let err = NotebookLmError::ArtifactNotReady("still processing".to_string());
+        assert!(err.to_string().contains("ARTEFACTO NO LISTO"));
+        assert!(err.to_string().contains("still processing"));
+
+        let err = NotebookLmError::ArtifactNotFound("art-123 not found".to_string());
+        assert!(err.to_string().contains("ARTEFACTO NO ENCONTRADO"));
+
+        let err = NotebookLmError::DownloadFailed("connection reset".to_string());
+        assert!(err.to_string().contains("ERROR DE DESCARGA"));
+
+        let err = NotebookLmError::GenerationFailed("USER_DISPLAYABLE_ERROR".to_string());
+        assert!(err.to_string().contains("GENERACIÓN FALLIDA"));
+    }
+
+    #[test]
+    fn test_error_from_string_detects_artifact_not_ready() {
+        let forms = vec![
+            "Artifact not ready: still processing",
+            "artifact_not_ready error",
+            "Still processing, please wait",
+        ];
+        for form in forms {
+            let err = NotebookLmError::from_string(form.to_string());
+            assert!(
+                matches!(err, NotebookLmError::ArtifactNotReady(_)),
+                "Should detect ArtifactNotReady from: {}",
+                form
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_from_string_detects_artifact_not_found() {
+        let forms = vec![
+            "Artifact not found: art-abc-123",
+            "artifact_not_found in notebook",
+        ];
+        for form in forms {
+            let err = NotebookLmError::from_string(form.to_string());
+            assert!(
+                matches!(err, NotebookLmError::ArtifactNotFound(_)),
+                "Should detect ArtifactNotFound from: {}",
+                form
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_from_string_detects_download_failed() {
+        let forms = vec![
+            "Download failed: connection reset",
+            "Stream error during download",
+            "Write failed: disk full",
+        ];
+        for form in forms {
+            let err = NotebookLmError::from_string(form.to_string());
+            assert!(
+                matches!(err, NotebookLmError::DownloadFailed(_)),
+                "Should detect DownloadFailed from: {}",
+                form
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_from_string_detects_generation_failed() {
+        let forms = vec![
+            "Generation failed: internal error",
+            "artifact failed during processing",
+            "generation_error: unknown reason",
+        ];
+        for form in forms {
+            let err = NotebookLmError::from_string(form.to_string());
+            assert!(
+                matches!(err, NotebookLmError::GenerationFailed(_)),
+                "Should detect GenerationFailed from: {}",
+                form
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_from_string_disambiguates_file_vs_artifact_not_found() {
+        // "artifact not found" → ArtifactNotFound
+        let err = NotebookLmError::from_string("Artifact not found".to_string());
+        assert!(matches!(err, NotebookLmError::ArtifactNotFound(_)));
+
+        // plain "not found" → FileNotFound (backward compatible)
+        let err = NotebookLmError::from_string("File not found: /path/to/file".to_string());
+        assert!(matches!(err, NotebookLmError::FileNotFound(_)));
     }
 }

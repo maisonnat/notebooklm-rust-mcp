@@ -25,6 +25,8 @@ const SERVICE_NAME: &str = "notebooklm-mcp";
 pub struct BrowserCredentials {
     pub cookie: String,
     pub csrf: String,
+    /// Session ID (FdrFJe) — required as `f.sid` URL param in batchexecute requests
+    pub sid: String,
 }
 
 /// Authentication result
@@ -56,15 +58,42 @@ impl BrowserAuthenticator {
     /// Attempt browser-based authentication
     /// Falls back to DPAPI if Chrome is not available
     pub async fn authenticate(&self) -> AuthResult {
+        use headless_chrome::LaunchOptions;
+        use std::ffi::OsStr;
+
         info!("Attempting browser-based authentication...");
 
-        // Try to launch Chrome
-        let browser = match Browser::default() {
-            Ok(b) => b,
+        // Launch Chrome in VISIBLE mode with anti-automation flags.
+        // Without these flags, Google detects CDP automation and blocks login
+        // with "It's possible that the browser or app isn't secure."
+        let launch_options = LaunchOptions::default_builder()
+            .headless(false)
+            .window_size(Some((1280, 800)))
+            .args(vec![
+                OsStr::new("--disable-blink-features=AutomationControlled"),
+                OsStr::new("--no-first-run"),
+                OsStr::new("--disable-infobars"),
+                OsStr::new("--disable-blink-features=AutomationControlled"),
+                OsStr::new("--password-manager-auto-login=false"),
+                OsStr::new("--disable-translate"),
+            ])
+            .build();
+
+        let browser = match launch_options {
+            Ok(opts) => match Browser::new(opts) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!("Chrome not available: {}. Falling back to DPAPI method.", e);
+                    return AuthResult::FallbackRequired(format!(
+                        "Chrome not available: {}. Use manual auth command.",
+                        e
+                    ));
+                }
+            },
             Err(e) => {
-                warn!("Chrome not available: {}. Falling back to DPAPI method.", e);
+                warn!("Failed to build launch options: {}. Falling back to DPAPI method.", e);
                 return AuthResult::FallbackRequired(format!(
-                    "Chrome not available: {}. Use manual auth command.",
+                    "Failed to configure Chrome: {}. Use manual auth command.",
                     e
                 ));
             }
@@ -81,10 +110,11 @@ impl BrowserAuthenticator {
             }
         };
 
-        // Navigate to Google sign-in page
-        let login_url = "https://accounts.google.com/";
+        // Navigate to NotebookLM — Google will redirect to login if needed,
+        // and after login the cookies for notebooklm.google.com are set.
+        let login_url = "https://notebooklm.google.com/";
         if let Err(e) = tab.navigate_to(login_url) {
-            error!("Failed to navigate to login page: {}", e);
+            error!("Failed to navigate to NotebookLM: {}", e);
             return AuthResult::Failed(format!("Navigation failed: {}", e));
         }
 
@@ -122,8 +152,22 @@ impl BrowserAuthenticator {
             tokio::time::sleep(check_interval).await;
         }
 
+        // After login, the browser may be on accounts.google.com or a redirect page.
+        // Navigate explicitly to NotebookLM so WIZ_global_data gets populated.
+        info!("Navigating to NotebookLM to extract session tokens...");
+        if let Err(e) = tab.navigate_to("https://notebooklm.google.com/") {
+            warn!("Navigation to NotebookLM after login failed: {}", e);
+            // Don't fail — we still have cookies, CSRF can be refreshed later
+        } else if let Err(e) = tab.wait_until_navigated() {
+            warn!("Wait for navigation after login returned: {}", e);
+        }
+
+        // Wait for the page JavaScript to execute and populate WIZ_global_data.
+        // This is async — wait_until_navigated only waits for DOM, not JS execution.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
         // Extract cookies via CDP
-        match Self::extract_cookies(&tab) {
+        match Self::extract_cookies(&tab).await {
             Ok(creds) => {
                 info!("Successfully extracted credentials from browser");
                 AuthResult::Success(creds)
@@ -136,39 +180,52 @@ impl BrowserAuthenticator {
     }
 
     /// Extract cookies from the authenticated session
-    fn extract_cookies(tab: &headless_chrome::Tab) -> Result<BrowserCredentials, String> {
+    async fn extract_cookies(tab: &headless_chrome::Tab) -> Result<BrowserCredentials, String> {
         // Get all cookies for notebooklm.google.com
         let cookies = tab.get_cookies().map_err(|e| format!("CDP error: {}", e))?;
 
-        let mut psid_cookie = None;
-        let mut psidts_cookie = None;
+        // Build the FULL cookie string with ALL Google cookies.
+        let cookie_parts: Vec<String> = cookies
+            .iter()
+            .filter(|c| {
+                c.name.contains("SID") || c.name.contains("HSID") || c.name.contains("SSID")
+                || c.name.contains("APISID") || c.name.contains("SAPISID")
+                || c.name.contains("LSID") || c.name.contains("NID")
+                || c.name.contains("SIDCC") || c.name.contains("PSIDCC")
+                || c.name.starts_with("__Secure-") || c.name.starts_with("__Host-")
+            })
+            .map(|c| format!("{}={}", c.name, c.value))
+            .collect();
 
-        for cookie in &cookies {
-            // Look for __Secure-1PSID and __Secure-1PSIDTS
-            if cookie.name == "__Secure-1PSID" {
-                psid_cookie = Some(cookie.value.clone());
-            } else if cookie.name == "__Secure-1PSIDTS" {
-                psidts_cookie = Some(cookie.value.clone());
-            }
+        let cookie = cookie_parts.join("; ");
+
+        if cookie.is_empty() {
+            let available: Vec<_> = cookies.iter().map(|c| c.name.as_str()).collect();
+            return Err(format!(
+                "No Google auth cookies found. Available: {:?}",
+                available
+            ));
         }
 
-        // Build the full cookie string
-        let cookie = match (psid_cookie, psidts_cookie) {
-            (Some(psid), Some(psidts)) => {
-                format!("__Secure-1PSID={}; __Secure-1PSIDTS={}", psid, psidts)
-            }
-            _ => {
-                return Err(
-                    "Required cookies (__Secure-1PSID, __Secure-1PSIDTS) not found".to_string(),
-                );
-            }
-        };
+        info!("Extracted {} cookies ({} bytes total)", cookie_parts.len(), cookie.len());
 
-        // For CSRF, we still extract it from the HTML response in Rust
-        // (as documented: CSRF is extracted via GET + regex from Rust, not from browser)
-        let csrf = String::new(); // Will be extracted separately via auth_helper
+        // Extract CSRF and session ID via HTTP GET with the cookies.
+        // CDP JS evaluation doesn't work because NotebookLM's SPA consumes
+        // WIZ_global_data at load time — the tokens are no longer in the DOM.
+        // But a plain HTTP GET returns the raw HTML with both tokens.
+        let (csrf, sid) = crate::auth_helper::AuthHelper::new()
+            .refresh_tokens(&cookie)
+            .await
+            .unwrap_or_else(|e| {
+                warn!("Could not extract tokens via HTTP: {}", e);
+                info!("Tokens will be extracted on first API call");
+                (String::new(), String::new())
+            });
 
-        Ok(BrowserCredentials { cookie, csrf })
+        info!("CSRF token: {} chars", csrf.len());
+        info!("Session ID (f.sid): {} chars", sid.len());
+
+        Ok(BrowserCredentials { cookie, csrf, sid })
     }
 
     /// Store credentials in OS keyring (Windows Credential Manager / Linux Secret Service)
@@ -256,25 +313,29 @@ pub fn store_credentials(creds: &BrowserCredentials) -> Result<(), String> {
 }
 
 /// Load credentials from storage (keyring preferred, fallback to DPAPI)
-pub fn load_credentials() -> Option<(String, String)> {
-    // Try keyring first
+pub fn load_credentials() -> Option<(String, String, String)> {
+    // Returns (cookie, csrf, sid)
     if let Ok(creds) = BrowserAuthenticator::load_from_keyring() {
-        return Some((creds.cookie, creds.csrf));
+        return Some((creds.cookie, creds.csrf, creds.sid));
     }
-
-    // Fallback: load from DPAPI (existing main.rs implementation)
-    // This would require access to the existing load_session function
     None
 }
 
 /// Check if browser-based authentication is available
 pub fn is_browser_auth_available() -> bool {
-    Browser::default().is_ok()
+    use headless_chrome::LaunchOptions;
+    let Ok(opts) = LaunchOptions::default_builder()
+        .headless(false)
+        .build()
+    else {
+        return false;
+    };
+    Browser::new(opts).is_ok()
 }
 
 /// Get status information about browser authentication
 pub fn get_auth_status() -> AuthStatus {
-    let chrome_available = Browser::default().is_ok();
+    let chrome_available = is_browser_auth_available();
     let has_keyring_creds = BrowserAuthenticator::has_stored_credentials();
 
     AuthStatus {
