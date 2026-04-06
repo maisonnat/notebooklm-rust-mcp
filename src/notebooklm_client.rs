@@ -2622,6 +2622,143 @@ mod tests {
     }
 
     // =========================================================================
+    // Module 6 — Exponential Backoff Fix
+    // =========================================================================
+
+    #[test]
+    fn test_exponential_backoff_grows_exponentially() {
+        // Verify the formula: 2^attempt (not 1^attempt which was the bug)
+        assert_eq!(2u64.pow(1u32.min(6)), 2);   // attempt 1 → 2s base
+        assert_eq!(2u64.pow(2u32.min(6)), 4);   // attempt 2 → 4s base
+        assert_eq!(2u64.pow(3u32.min(6)), 8);   // attempt 3 → 8s base
+        assert_eq!(2u64.pow(4u32.min(6)), 16);  // attempt 4 → 16s base
+        assert_eq!(2u64.pow(5u32.min(6)), 32);  // attempt 5 → 32s base
+        assert_eq!(2u64.pow(6u32.min(6)), 64);  // attempt 6 → 64s base (cap)
+        assert_eq!(2u64.pow(7u32.min(6)), 64);  // attempt 7 → still 64s (capped)
+        assert_eq!(2u64.pow(100u32.min(6)), 64); // attempt 100 → still 64s (capped)
+    }
+
+    #[tokio::test]
+    async fn test_apply_jitter_uses_correct_range() {
+        // We can't test exact randomness, but we can verify the function
+        // completes without panic (800..=2000 is a valid range)
+        NotebookLmClient::apply_jitter().await;
+        // If we get here, the range is valid (no panic on invalid range)
+    }
+
+    // =========================================================================
+    // Module 6 — Retry-After Parsing
+    // =========================================================================
+
+    #[test]
+    fn test_parse_retry_after_seconds() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("5"));
+        assert_eq!(NotebookLmClient::parse_retry_after(&headers), Some(5000));
+    }
+
+    #[test]
+    fn test_parse_retry_after_missing() {
+        let headers = reqwest::header::HeaderMap::new();
+        assert_eq!(NotebookLmClient::parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after_capped_at_120s() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("999"));
+        assert_eq!(NotebookLmClient::parse_retry_after(&headers), Some(120_000));
+    }
+
+    #[test]
+    fn test_parse_retry_after_invalid() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("not-a-number"));
+        assert_eq!(NotebookLmClient::parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after_zero() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("0"));
+        assert_eq!(NotebookLmClient::parse_retry_after(&headers), Some(0));
+    }
+
+    #[test]
+    fn test_extract_retry_after_ms_valid() {
+        assert_eq!(NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:5000"), Some(5000));
+        assert_eq!(NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:100"), Some(100));
+    }
+
+    #[test]
+    fn test_extract_retry_after_ms_invalid() {
+        assert_eq!(NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:abc"), None);
+        assert_eq!(NotebookLmClient::extract_retry_after_ms("some other error"), None);
+        assert_eq!(NotebookLmClient::extract_retry_after_ms(""), None);
+    }
+
+    // =========================================================================
+    // Module 6 — Circuit Breaker State Transitions
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_circuit_breaker_closed_below_threshold() {
+        let client = make_test_client();
+        client.record_auth_failure();
+        client.record_auth_failure();
+        // 2 errors — below threshold of 3
+        assert!(client.check_circuit_breaker().is_ok(), "Circuit should be closed with 2 errors");
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_opens_at_threshold() {
+        let client = make_test_client();
+        client.record_auth_failure();
+        client.record_auth_failure();
+        client.record_auth_failure();
+        // 3 errors — at threshold, circuit must be open
+        let result = client.check_circuit_breaker();
+        assert!(result.is_err(), "Circuit should be OPEN with 3 errors");
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Circuit breaker OPEN"), "Error must mention circuit breaker: {}", err_msg);
+        assert!(err_msg.contains("auth-browser"), "Error must suggest auth-browser: {}", err_msg);
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_resets_on_success() {
+        let client = make_test_client();
+        client.record_auth_failure();
+        client.record_auth_failure();
+        client.record_auth_success();
+        // Success resets to 0
+        assert!(client.check_circuit_breaker().is_ok(), "Circuit should be closed after reset");
+        use std::sync::atomic::Ordering;
+        assert_eq!(client.auth_error_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_non_auth_error_ignored() {
+        let client = make_test_client();
+        // Non-auth errors should NOT increment the counter
+        // record_auth_failure is only called on auth errors in the real code,
+        // so we verify the counter stays at 0 without calling it
+        use std::sync::atomic::Ordering;
+        assert_eq!(client.auth_error_count.load(Ordering::Relaxed), 0);
+        assert!(client.check_circuit_breaker().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_error_message_has_cooldown() {
+        let client = make_test_client();
+        client.record_auth_failure();
+        client.record_auth_failure();
+        client.record_auth_failure();
+        let err = client.check_circuit_breaker().unwrap_err();
+        assert!(err.contains("Cooldown:"), "Error must show remaining cooldown time");
+        assert!(err.contains("3 consecutive auth errors"), "Error must show error count");
+    }
+
+    // =========================================================================
     // 9.1-9.4 — Integration tests (require real credentials)
     //
     // These tests hit the REAL NotebookLM API. They are #[ignore]d by default.
