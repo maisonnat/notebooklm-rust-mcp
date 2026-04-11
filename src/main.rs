@@ -613,7 +613,7 @@ impl NotebookLmServer {
             let kind_filter = request
                 .kind
                 .as_deref()
-                .and_then(|k| notebooklm_client::ArtifactType::from_str_key(k));
+                .and_then(notebooklm_client::ArtifactType::from_str_key);
             match c.list_artifacts(&request.notebook_id, kind_filter).await {
                 Ok(artifacts) => {
                     if artifacts.is_empty() {
