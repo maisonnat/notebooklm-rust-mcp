@@ -451,11 +451,24 @@ pub struct ResearchDeepDiveRequest {
     pub timeout_secs: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct ResearchDeepDiveStartRequest {
+    pub notebook_id: String,
+    pub query: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct ResearchDeepDiveStatusRequest {
+    pub notebook_id: String,
+    pub task_id: Option<String>,
+}
+
 pub mod notebooklm_client;
 pub mod parser;
 pub mod errors;
 pub mod source_poller;
 pub mod artifact_poller;
+pub mod research_poller;
 pub mod auth_helper;
 pub mod conversation_cache;
 pub mod auth_browser;
@@ -925,7 +938,88 @@ impl NotebookLmServer {
         }
     }
 
-    #[tool(name = "research_deep_dive", description = "Start a deep research investigation using Google's autonomous research engine. Blocks until complete (up to timeout), then imports discovered sources into the notebook.")]
+    // --- Research Deep Dive Tools ---
+
+    #[tool(name = "research_deep_dive_start", description = "Start a deep research investigation using Google's autonomous research engine. Returns a task_id immediately without blocking. Use research_deep_dive_status to poll progress.")]
+    pub async fn research_deep_dive_start(&self, req: Parameters<ResearchDeepDiveStartRequest>) -> String {
+        let request = req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.start_deep_research(&request.notebook_id, &request.query).await {
+                Ok(task_id) => {
+                    info!("Deep research started. Task ID: {}", task_id);
+                    serde_json::json!({
+                        "task_id": task_id,
+                        "notebook_id": request.notebook_id,
+                        "query": request.query,
+                        "status": "started"
+                    })
+                    .to_string()
+                }
+                Err(e) => format!("Error starting deep research: {}", e),
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(name = "research_deep_dive_status", description = "Check the status of a deep research task. Non-blocking — returns current status immediately. Returns status, sources found, and report markdown when complete.")]
+    pub async fn research_deep_dive_status(
+        &self,
+        req: Parameters<ResearchDeepDiveStatusRequest>,
+    ) -> String {
+        let request = req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            let tid = request.task_id.as_deref().unwrap_or("");
+            match c.poll_research_status(&request.notebook_id, tid).await {
+                Ok(status) => {
+                    let status_str = if status.is_complete {
+                        "completed"
+                    } else if status.status_code == 0 {
+                        "no_research"
+                    } else {
+                        "in_progress"
+                    };
+
+                    let sources_json: Vec<serde_json::Value> = status
+                        .sources
+                        .iter()
+                        .map(|s| {
+                            serde_json::json!({
+                                "url": s.url,
+                                "title": s.title,
+                                "description": s.description,
+                                "result_type": s.result_type
+                            })
+                        })
+                        .collect();
+
+                    serde_json::json!({
+                        "status": status_str,
+                        "status_code": status.status_code,
+                        "task_id": request.task_id,
+                        "query": status.query,
+                        "sources_found": sources_json.len(),
+                        "sources": sources_json,
+                        "report": status.report,
+                        "is_complete": status.is_complete
+                    })
+                    .to_string()
+                }
+                Err(e) => format!("Error polling research status: {}", e),
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    /// DEPRECATED: Use research_deep_dive_start + research_deep_dive_status instead.
+    /// This tool will be removed in the next major release.
+    #[tool(
+        name = "research_deep_dive",
+        description = "DEPRECATED: Use research_deep_dive_start + research_deep_dive_status instead. This tool will be removed in the next major release. Start a deep research investigation using Google's autonomous research engine. Blocks until complete (up to timeout), then imports discovered sources into the notebook."
+    )]
     pub async fn research_deep_dive(&self, req: Parameters<ResearchDeepDiveRequest>) -> String {
         let request = req.0;
         let timeout = request.timeout_secs.unwrap_or(300);
@@ -944,12 +1038,22 @@ impl NotebookLmServer {
             }
         };
 
-        info!("Deep research started. Task ID: {}. Timeout: {}s", task_id, timeout);
+        info!(
+            "Deep research started (deprecated wrapper). Task ID: {}. Timeout: {}s",
+            task_id, timeout
+        );
 
+        // Blocking poll with exponential backoff: 2s → 4s → 8s → 10s cap
         let start = std::time::Instant::now();
+        let mut interval = std::time::Duration::from_secs(2);
+        let max_interval = std::time::Duration::from_secs(10);
+
         loop {
             if start.elapsed().as_secs() >= timeout {
-                return format!("Deep research timed out after {}s. Task ID: {}", timeout, task_id);
+                return format!(
+                    "Deep research timed out after {}s. Task ID: {}",
+                    timeout, task_id
+                );
             }
 
             let status = {
@@ -967,17 +1071,32 @@ impl NotebookLmServer {
             if status.is_complete {
                 let lock = self.state.read().await;
                 if let Some(c) = &*lock {
-                    match c.import_research_sources(&notebook_id, &task_id, serde_json::json!([])).await {
-                        Ok(()) => return format!("✅ Deep research complete. Sources imported. Task ID: {}", task_id),
-                        Err(e) => return format!("Research complete but failed to import sources: {}", e),
+                    match c
+                        .import_research_sources(&notebook_id, &task_id, serde_json::json!([]))
+                        .await
+                    {
+                        Ok(()) => {
+                            return format!(
+                                "✅ Deep research complete. Sources imported. Task ID: {}. Sources found: {}",
+                                task_id,
+                                status.sources.len()
+                            );
+                        }
+                        Err(e) => {
+                            return format!("Research complete but failed to import sources: {}", e);
+                        }
                     }
                 } else {
                     return "Error: Servidor no autenticado".into();
                 }
             }
 
-            info!("Research status: code={} — polling in 5s...", status.status_code);
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            info!(
+                "Research status: code={} — polling in {:?}...",
+                status.status_code, interval
+            );
+            tokio::time::sleep(interval).await;
+            interval = (interval * 2).min(max_interval);
         }
     }
 }

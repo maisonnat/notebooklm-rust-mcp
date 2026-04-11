@@ -1971,29 +1971,44 @@ impl NotebookLmClient {
 
     /// Poll the status of a deep research task.
     /// RPC: `e3bVqc`, payload: `[null, null, notebook_id]`
+    ///
+    /// Returns full parsing including sources and report markdown.
+    /// If `task_id` is empty, returns the latest task.
     pub async fn poll_research_status(&self, notebook_id: &str, task_id: &str) -> Result<crate::rpc::notes::ResearchStatus, String> {
         let inner_json = format!("[null,null,\"{}\"]", notebook_id);
         let response = self.batchexecute("e3bVqc", &inner_json).await?;
-        let inner = extract_by_rpc_id(&response, "e3bVqc").ok_or("No se encontró respuesta e3bVqc")?;
-        if let Some(arr) = inner.as_array() {
-            for item in arr {
-                if let Some(item_arr) = item.as_array()
-                    && let Some(id) = get_string_at(item_arr, 0)
-                    && id == task_id
-                {
-                    let code = item_arr.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
-                    return Ok(crate::rpc::notes::ResearchStatus {
-                        status_code: code,
-                        sources: Vec::new(),
-                        is_complete: code == 2 || code == 6,
-                    });
-                }
+        let inner = crate::parser::extract_by_rpc_id(&response, "e3bVqc").ok_or("No se encontró respuesta e3bVqc")?;
+
+        let tasks = crate::research_poller::parse_all_research_tasks(&inner);
+
+        if tasks.is_empty() {
+            return Ok(crate::rpc::notes::ResearchStatus {
+                status_code: 0,
+                sources: Vec::new(),
+                report: None,
+                is_complete: false,
+                query: None,
+            });
+        }
+
+        // Find specific task or return latest
+        if task_id.is_empty() {
+            return Ok(tasks.into_iter().next().map(|(_, s)| s).unwrap());
+        }
+
+        for (id, status) in tasks {
+            if id == task_id {
+                return Ok(status);
             }
         }
+
+        // Task not found
         Ok(crate::rpc::notes::ResearchStatus {
             status_code: 0,
             sources: Vec::new(),
+            report: None,
             is_complete: false,
+            query: None,
         })
     }
 

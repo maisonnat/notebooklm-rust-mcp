@@ -19,12 +19,23 @@ pub struct ChatTurn {
     pub text: String,
 }
 
+/// Parsed source from research results.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResearchSource {
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub result_type: u32, // 1=web, 2=drive, 5=report
+}
+
 /// Status of a deep research task.
 #[derive(Debug, Clone)]
 pub struct ResearchStatus {
     pub status_code: u32,
-    pub sources: Vec<serde_json::Value>,
+    pub sources: Vec<ResearchSource>,
+    pub report: Option<String>,
     pub is_complete: bool,
+    pub query: Option<String>,
 }
 
 #[cfg(test)]
