@@ -50,9 +50,7 @@ pub struct BrowserAuthenticator {
 impl BrowserAuthenticator {
     /// Create a new browser authenticator
     pub fn new() -> Self {
-        Self {
-            profile_dir: None,
-        }
+        Self { profile_dir: None }
     }
 
     /// Attempt browser-based authentication
@@ -91,7 +89,10 @@ impl BrowserAuthenticator {
                 }
             },
             Err(e) => {
-                warn!("Failed to build launch options: {}. Falling back to DPAPI method.", e);
+                warn!(
+                    "Failed to build launch options: {}. Falling back to DPAPI method.",
+                    e
+                );
                 return AuthResult::FallbackRequired(format!(
                     "Failed to configure Chrome: {}. Use manual auth command.",
                     e
@@ -188,11 +189,17 @@ impl BrowserAuthenticator {
         let cookie_parts: Vec<String> = cookies
             .iter()
             .filter(|c| {
-                c.name.contains("SID") || c.name.contains("HSID") || c.name.contains("SSID")
-                || c.name.contains("APISID") || c.name.contains("SAPISID")
-                || c.name.contains("LSID") || c.name.contains("NID")
-                || c.name.contains("SIDCC") || c.name.contains("PSIDCC")
-                || c.name.starts_with("__Secure-") || c.name.starts_with("__Host-")
+                c.name.contains("SID")
+                    || c.name.contains("HSID")
+                    || c.name.contains("SSID")
+                    || c.name.contains("APISID")
+                    || c.name.contains("SAPISID")
+                    || c.name.contains("LSID")
+                    || c.name.contains("NID")
+                    || c.name.contains("SIDCC")
+                    || c.name.contains("PSIDCC")
+                    || c.name.starts_with("__Secure-")
+                    || c.name.starts_with("__Host-")
             })
             .map(|c| format!("{}={}", c.name, c.value))
             .collect();
@@ -207,7 +214,11 @@ impl BrowserAuthenticator {
             ));
         }
 
-        info!("Extracted {} cookies ({} bytes total)", cookie_parts.len(), cookie.len());
+        info!(
+            "Extracted {} cookies ({} bytes total)",
+            cookie_parts.len(),
+            cookie.len()
+        );
 
         // Extract CSRF and session ID via HTTP GET with the cookies.
         // CDP JS evaluation doesn't work because NotebookLM's SPA consumes
@@ -324,10 +335,7 @@ pub fn load_credentials() -> Option<(String, String, String)> {
 /// Check if browser-based authentication is available
 pub fn is_browser_auth_available() -> bool {
     use headless_chrome::LaunchOptions;
-    let Ok(opts) = LaunchOptions::default_builder()
-        .headless(false)
-        .build()
-    else {
+    let Ok(opts) = LaunchOptions::default_builder().headless(false).build() else {
         return false;
     };
     Browser::new(opts).is_ok()

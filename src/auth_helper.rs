@@ -17,28 +17,30 @@ use tracing::info;
 pub fn extract_csrf_from_html(html: &str) -> Result<String, String> {
     // El token está en el HTML como: "SNlM0e":"valor"
     // También puede aparecer como: "SNlM0e":"valor","other_field":...
-    let re = Regex::new(r#""SNlM0e"\s*:\s*"([^"]+)""#)
-        .map_err(|e| format!("Regex inválido: {}", e))?;
-    
+    let re =
+        Regex::new(r#""SNlM0e"\s*:\s*"([^"]+)""#).map_err(|e| format!("Regex inválido: {}", e))?;
+
     if let Some(caps) = re.captures(html)
-        && let Some(token) = caps.get(1) {
-            let token_str = token.as_str();
-            if token_str.is_empty() {
-                return Err("Token CSRF vacío".to_string());
-            }
-            info!("Token CSRF extraído: {} chars", token_str.len());
-            return Ok(token_str.to_string());
+        && let Some(token) = caps.get(1)
+    {
+        let token_str = token.as_str();
+        if token_str.is_empty() {
+            return Err("Token CSRF vacío".to_string());
         }
-    
+        info!("Token CSRF extraído: {} chars", token_str.len());
+        return Ok(token_str.to_string());
+    }
+
     // Backup: buscar en otros formatos posibles
     let re2 = Regex::new(r#"SNlM0e["']?\s*[:=]\s*["']([^"']+)["']"#)
         .map_err(|e| format!("Regex backup inválido: {}", e))?;
-    
+
     if let Some(caps) = re2.captures(html)
-        && let Some(token) = caps.get(1) {
-            return Ok(token.as_str().to_string());
+        && let Some(token) = caps.get(1)
+    {
+        return Ok(token.as_str().to_string());
     }
-    
+
     Err("No se encontró token CSRF (SNlM0e) en el HTML".to_string())
 }
 
@@ -46,19 +48,20 @@ pub fn extract_csrf_from_html(html: &str) -> Result<String, String> {
 /// Este valor se pasa como `f.sid` en la URL de batchexecute.
 /// Sin él, Google retorna 200 con datos vacíos.
 pub fn extract_session_id_from_html(html: &str) -> Result<String, String> {
-    let re = Regex::new(r#""FdrFJe"\s*:\s*"([^"]+)""#)
-        .map_err(|e| format!("Regex inválido: {}", e))?;
-    
+    let re =
+        Regex::new(r#""FdrFJe"\s*:\s*"([^"]+)""#).map_err(|e| format!("Regex inválido: {}", e))?;
+
     if let Some(caps) = re.captures(html)
-        && let Some(token) = caps.get(1) {
-            let token_str = token.as_str();
-            if token_str.is_empty() {
-                return Err("Session ID vacío".to_string());
-            }
-            info!("Session ID (FdrFJe) extraído: {} chars", token_str.len());
-            return Ok(token_str.to_string());
+        && let Some(token) = caps.get(1)
+    {
+        let token_str = token.as_str();
+        if token_str.is_empty() {
+            return Err("Session ID vacío".to_string());
         }
-    
+        info!("Session ID (FdrFJe) extraído: {} chars", token_str.len());
+        return Ok(token_str.to_string());
+    }
+
     Err("No se encontró session ID (FdrFJe) en el HTML".to_string())
 }
 
@@ -73,8 +76,10 @@ impl AuthHelper {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to create HTTP client");
-        
-        Self { http_client: client }
+
+        Self {
+            http_client: client,
+        }
     }
 
     /// Hace un GET a la página principal y extrae el CSRF token
@@ -92,37 +97,42 @@ impl AuthHelper {
     /// Un solo GET basta para obtener ambos.
     pub async fn refresh_tokens(&self, cookie: &str) -> Result<(String, String), String> {
         info!("Refrescando tokens CSRF y Session ID desde NotebookLM...");
-        
+
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::COOKIE,
             reqwest::header::HeaderValue::from_str(cookie)
-                .map_err(|e| format!("Cookie inválida: {}", e))?
+                .map_err(|e| format!("Cookie inválida: {}", e))?,
         );
-        
-        let response = self.http_client
+
+        let response = self
+            .http_client
             .get("https://notebooklm.google.com/")
             .headers(headers)
             .send()
             .await
             .map_err(|e| format!("GET falló: {}", e))?;
-        
+
         if !response.status().is_success() {
-            return Err(format!("GET a página principal falló: {}", response.status()));
+            return Err(format!(
+                "GET a página principal falló: {}",
+                response.status()
+            ));
         }
-        
-        let html = response.text().await
+
+        let html = response
+            .text()
+            .await
             .map_err(|e| format!("No se pudo leer HTML: {}", e))?;
-        
+
         let csrf = extract_csrf_from_html(&html)?;
-        let sid = extract_session_id_from_html(&html)
-            .map_err(|e| {
-                // CSRF found but no FdrFJe — this happens when Google changes the page.
-                // Log warning but don't fail: f.sid is optional-ish (empty = omitted from URL)
-                info!("No se pudo extraer FdrFJe: {}", e);
-                String::new()
-            })?;
-        
+        let sid = extract_session_id_from_html(&html).map_err(|e| {
+            // CSRF found but no FdrFJe — this happens when Google changes the page.
+            // Log warning but don't fail: f.sid is optional-ish (empty = omitted from URL)
+            info!("No se pudo extraer FdrFJe: {}", e);
+            String::new()
+        })?;
+
         Ok((csrf, sid))
     }
 
@@ -133,10 +143,11 @@ impl AuthHelper {
         headers.insert(
             reqwest::header::COOKIE,
             reqwest::header::HeaderValue::from_str(cookie)
-                .map_err(|e| format!("Cookie inválida: {}", e))?
+                .map_err(|e| format!("Cookie inválida: {}", e))?,
         );
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get("https://notebooklm.google.com/")
             .headers(headers)
             .send()
@@ -144,16 +155,18 @@ impl AuthHelper {
             .map_err(|e| format!("GET falló: {}", e))?;
 
         // Si devuelve 401/403, la sesión expiró
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED 
-            || response.status() == reqwest::StatusCode::FORBIDDEN {
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED
+            || response.status() == reqwest::StatusCode::FORBIDDEN
+        {
             return Ok(false);
         }
 
         // Si redirection a accounts.google.com, también expiró
         if let Some(loc) = response.headers().get("location")
-            && loc.to_str().unwrap_or("").contains("accounts.google.com") {
-                return Ok(false);
-            }
+            && loc.to_str().unwrap_or("").contains("accounts.google.com")
+        {
+            return Ok(false);
+        }
 
         Ok(true)
     }

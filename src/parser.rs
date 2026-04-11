@@ -22,8 +22,8 @@
 //! - **HTML entities**: Los `data-app-data` contienen `&quot;` etc que deben
 //!   decodificarse con `html_escape::decode_html_entities()` antes de JSON parse.
 
+use crate::rpc::artifacts::{ArtifactStatus, ArtifactType, ArtifactTypeCode, GenerationStatus};
 use serde_json::Value;
-use crate::rpc::artifacts::{ArtifactTypeCode, ArtifactType, ArtifactStatus, GenerationStatus};
 
 /// Resultado genérico de una llamada RPC batchexecute
 /// Formato: [["wrb.fr", "rpc_id", "<inner_json>", ...], ...]
@@ -375,7 +375,12 @@ pub fn parse_artifact_list(inner: &Value) -> Vec<Artifact> {
         // 2. A nested wrapper: [[id, title, ...], ...]
         let art_val = if item.is_array() {
             // Check if this is a direct artifact (has a string at index 0 = artifact_id)
-            if item.as_array().unwrap().first().is_some_and(|v| v.is_string()) {
+            if item
+                .as_array()
+                .unwrap()
+                .first()
+                .is_some_and(|v| v.is_string())
+            {
                 item
             } else {
                 // Might be nested — try first element
@@ -443,10 +448,11 @@ pub fn extract_audio_url(artifact_data: &Value) -> Option<String> {
         let item_arr = item.as_array()?;
         if item_arr.len() > 2
             && item_arr.get(2).and_then(|v| v.as_str()) == Some("audio/mp4")
-                && let Some(url) = item_arr.first().and_then(|v| v.as_str())
-                    && !url.is_empty() {
-                        return Some(url.to_string());
-                    }
+            && let Some(url) = item_arr.first().and_then(|v| v.as_str())
+            && !url.is_empty()
+        {
+            return Some(url.to_string());
+        }
     }
 
     // Fallback: first item's first element
@@ -499,12 +505,13 @@ pub fn extract_video_url(artifact_data: &Value) -> Option<String> {
 
             if mime == Some("video/mp4")
                 && let Some(url) = url
-                    && !url.is_empty() {
-                        if quality == Some(4) {
-                            return Some(url.to_string());
-                        }
-                        fallback_url = Some(url.to_string());
-                    }
+                && !url.is_empty()
+            {
+                if quality == Some(4) {
+                    return Some(url.to_string());
+                }
+                fallback_url = Some(url.to_string());
+            }
         }
     }
 
@@ -527,30 +534,40 @@ pub fn extract_infographic_url(artifact_data: &Value) -> Option<String> {
     for item in arr {
         // Use `continue` not `?` — non-array items (strings, numbers, nulls)
         // are normal in the artifact array and should be skipped, not cause early return
-        let Some(item_arr) = item.as_array() else { continue };
+        let Some(item_arr) = item.as_array() else {
+            continue;
+        };
         if item_arr.len() <= 2 {
             continue;
         }
 
-        let Some(content) = item_arr.get(2).and_then(|v| v.as_array()) else { continue };
+        let Some(content) = item_arr.get(2).and_then(|v| v.as_array()) else {
+            continue;
+        };
         if content.is_empty() {
             continue;
         }
 
-        let Some(first_content) = content.first().and_then(|v| v.as_array()) else { continue };
+        let Some(first_content) = content.first().and_then(|v| v.as_array()) else {
+            continue;
+        };
         if first_content.len() <= 1 {
             continue;
         }
 
-        let Some(img_data) = first_content.get(1).and_then(|v| v.as_array()) else { continue };
+        let Some(img_data) = first_content.get(1).and_then(|v| v.as_array()) else {
+            continue;
+        };
         if img_data.is_empty() {
             continue;
         }
 
         if let Some(url) = img_data.first().and_then(|v| v.as_str())
-            && url.starts_with("http") && !url.contains("notebooklm.google.com") {
-                return Some(url.to_string());
-            }
+            && url.starts_with("http")
+            && !url.contains("notebooklm.google.com")
+        {
+            return Some(url.to_string());
+        }
     }
 
     None
@@ -672,10 +689,7 @@ pub fn extract_cell_text(cell: &Value) -> String {
     match cell {
         Value::String(s) => s.clone(),
         Value::Number(_) => String::new(), // position markers
-        Value::Array(arr) => arr
-            .iter()
-            .map(extract_cell_text)
-            .collect(),
+        Value::Array(arr) => arr.iter().map(extract_cell_text).collect(),
         _ => String::new(),
     }
 }
@@ -707,9 +721,19 @@ pub fn parse_data_table(artifact_data: &Value) -> Option<(Vec<String>, Vec<Vec<S
     let raw_data = artifact_data.as_array()?.get(18)?.as_array()?;
 
     // Navigate: [0][0][0][0][4][2] = rows_array
-    let rows_array = raw_data.first()?.as_array()?.first()?.as_array()?.first()?.as_array()?.first()?.as_array()?
-        .get(4)?.as_array()?
-        .get(2)?.as_array()?;
+    let rows_array = raw_data
+        .first()?
+        .as_array()?
+        .first()?
+        .as_array()?
+        .first()?
+        .as_array()?
+        .first()?
+        .as_array()?
+        .get(4)?
+        .as_array()?
+        .get(2)?
+        .as_array()?;
 
     if rows_array.is_empty() {
         return None;
@@ -725,10 +749,7 @@ pub fn parse_data_table(artifact_data: &Value) -> Option<(Vec<String>, Vec<Vec<S
         }
 
         let cell_array = row_arr.get(2)?.as_array()?;
-        let row_values: Vec<String> = cell_array
-            .iter()
-            .map(extract_cell_text)
-            .collect();
+        let row_values: Vec<String> = cell_array.iter().map(extract_cell_text).collect();
 
         if i == 0 {
             headers = row_values;
@@ -802,7 +823,8 @@ pub fn format_quiz_markdown(title: &str, questions: &[Value]) -> String {
     let mut lines = vec![format!("# {}", title), String::new()];
 
     for (i, q) in questions.iter().enumerate() {
-        let question_text = q.get("question")
+        let question_text = q
+            .get("question")
             .and_then(|v| v.as_str())
             .unwrap_or("(no question text)");
 
@@ -812,10 +834,9 @@ pub fn format_quiz_markdown(title: &str, questions: &[Value]) -> String {
 
         if let Some(options) = q.get("answerOptions").and_then(|v| v.as_array()) {
             for opt in options {
-                let text = opt.get("text")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let is_correct = opt.get("isCorrect")
+                let text = opt.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let is_correct = opt
+                    .get("isCorrect")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let marker = if is_correct { "[x]" } else { "[ ]" };
@@ -824,10 +845,11 @@ pub fn format_quiz_markdown(title: &str, questions: &[Value]) -> String {
         }
 
         if let Some(hint) = q.get("hint").and_then(|v| v.as_str())
-            && !hint.is_empty() {
-                lines.push(String::new());
-                lines.push(format!("**Hint:** {}", hint));
-            }
+            && !hint.is_empty()
+        {
+            lines.push(String::new());
+            lines.push(format!("**Hint:** {}", hint));
+        }
 
         lines.push(String::new());
     }
@@ -914,9 +936,10 @@ pub fn extract_note_content(item: &Value) -> Option<String> {
     // New format: field is an array, content at index 1
     if let Some(arr) = field.as_array()
         && arr.len() > 1
-            && let Some(s) = arr.get(1).and_then(|v| v.as_str()) {
-                return Some(s.to_string());
-            }
+        && let Some(s) = arr.get(1).and_then(|v| v.as_str())
+    {
+        return Some(s.to_string());
+    }
 
     None
 }
@@ -1290,11 +1313,8 @@ mod tests {
     #[test]
     fn test_artifact_from_api_response_empty_id() {
         let art = serde_json::json!([
-            "",    // empty id
-            "Title",
-            1,
-            null,
-            3,
+            "", // empty id
+            "Title", 1, null, 3,
         ]);
         assert!(Artifact::from_api_response(&art).is_none());
     }
@@ -1316,9 +1336,9 @@ mod tests {
     #[test]
     fn test_parse_artifact_list_multiple() {
         let inner = serde_json::json!([
-            make_artifact_array(1, 3, None),  // Audio, Completed
-            make_artifact_array(3, 1, None),  // Video, Processing
-            make_artifact_array(2, 3, None),  // Report, Completed
+            make_artifact_array(1, 3, None), // Audio, Completed
+            make_artifact_array(3, 1, None), // Video, Processing
+            make_artifact_array(2, 3, None), // Report, Completed
         ]);
         let artifacts = parse_artifact_list(&inner);
         assert_eq!(artifacts.len(), 3);
@@ -1357,7 +1377,7 @@ mod tests {
     fn test_parse_generation_result() {
         // result[0][0] = task_id, result[0][4] = status
         let inner = serde_json::json!([
-            ["art-task-123", null, null, null, 1]  // Processing
+            ["art-task-123", null, null, null, 1] // Processing
         ]);
         let result = parse_generation_result(&inner);
         assert!(result.is_some());
@@ -1370,7 +1390,7 @@ mod tests {
     #[test]
     fn test_parse_generation_result_completed() {
         let inner = serde_json::json!([
-            ["art-done-456", null, null, null, 3]  // Completed
+            ["art-done-456", null, null, null, 3] // Completed
         ]);
         let result = parse_generation_result(&inner).unwrap();
         assert_eq!(result.task_id, "art-done-456");
@@ -1399,10 +1419,18 @@ mod tests {
     fn test_extract_audio_url_with_mp4_mime() {
         // art[6][5] = media list with audio/mp4 entry
         let raw = serde_json::json!([
-            "audio-id", "Audio Title", 1, null, 3,
+            "audio-id",
+            "Audio Title",
+            1,
+            null,
+            3,
             null,
             [
-                null, null, null, null, null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 [
                     ["https://cdn.google.com/audio_lo.mp4", 2, "audio/mp4"],
                     ["https://cdn.google.com/audio_hi.mp4", 4, "audio/mp4"],
@@ -1419,13 +1447,19 @@ mod tests {
     fn test_extract_audio_url_fallback_first_item() {
         // art[6][5] = media list with NO audio/mp4 match → fallback to first item
         let raw = serde_json::json!([
-            "audio-id", "Audio Title", 1, null, 3,
+            "audio-id",
+            "Audio Title",
+            1,
+            null,
+            3,
             null,
             [
-                null, null, null, null, null,
-                [
-                    ["https://cdn.google.com/audio.mp4", 4, "audio/mpeg"],
-                ]
+                null,
+                null,
+                null,
+                null,
+                null,
+                [["https://cdn.google.com/audio.mp4", 4, "audio/mpeg"],]
             ]
         ]);
         let url = extract_audio_url(&raw);
@@ -1436,7 +1470,11 @@ mod tests {
     fn test_extract_audio_url_empty_media_list() {
         // art[6][5] = empty list
         let raw = serde_json::json!([
-            "audio-id", "Audio Title", 1, null, 3,
+            "audio-id",
+            "Audio Title",
+            1,
+            null,
+            3,
             null,
             [null, null, null, null, null, []]
         ]);
@@ -1454,12 +1492,13 @@ mod tests {
     fn test_extract_audio_url_empty_string_url() {
         // URL is empty string → should not return it
         let raw = serde_json::json!([
-            "audio-id", "Audio Title", 1, null, 3,
+            "audio-id",
+            "Audio Title",
+            1,
             null,
-            [
-                null, null, null, null, null,
-                [["", 4, "audio/mp4"]]
-            ]
+            3,
+            null,
+            [null, null, null, null, null, [["", 4, "audio/mp4"]]]
         ]);
         assert!(extract_audio_url(&raw).is_none());
     }
@@ -1474,7 +1513,11 @@ mod tests {
     fn test_extract_audio_url_item_not_array() {
         // art[6][5] has non-array items
         let raw = serde_json::json!([
-            "audio-id", "Audio Title", 1, null, 3,
+            "audio-id",
+            "Audio Title",
+            1,
+            null,
+            3,
             null,
             [null, null, null, null, null, ["not-an-array", "audio/mp4"]]
         ]);
@@ -1487,8 +1530,14 @@ mod tests {
     fn test_extract_video_url_quality_4() {
         // art[8] = media groups, first group has quality=4 entry
         let raw = serde_json::json!([
-            "video-id", "Video Title", 3, null, 3,
-            null, null, null,
+            "video-id",
+            "Video Title",
+            3,
+            null,
+            3,
+            null,
+            null,
+            null,
             [
                 // media group: first item is [url, ...] with http URL
                 [
@@ -1505,13 +1554,15 @@ mod tests {
     fn test_extract_video_url_fallback_lower_quality() {
         // Only quality=2 available → returns it as fallback
         let raw = serde_json::json!([
-            "video-id", "Video Title", 3, null, 3,
-            null, null, null,
-            [
-                [
-                    ["https://cdn.google.com/video_2.mp4", 2, "video/mp4"],
-                ]
-            ]
+            "video-id",
+            "Video Title",
+            3,
+            null,
+            3,
+            null,
+            null,
+            null,
+            [[["https://cdn.google.com/video_2.mp4", 2, "video/mp4"],]]
         ]);
         let url = extract_video_url(&raw);
         assert_eq!(url, Some("https://cdn.google.com/video_2.mp4".to_string()));
@@ -1521,15 +1572,19 @@ mod tests {
     fn test_extract_video_url_prefers_quality_4_over_lower() {
         // Multiple entries, quality=4 is second → should still find it
         let raw = serde_json::json!([
-            "video-id", "Video Title", 3, null, 3,
-            null, null, null,
-            [
-                [
-                    ["https://cdn.google.com/video_1.mp4", 1, "video/mp4"],
-                    ["https://cdn.google.com/video_2.mp4", 2, "video/mp4"],
-                    ["https://cdn.google.com/video_4.mp4", 4, "video/mp4"],
-                ]
-            ]
+            "video-id",
+            "Video Title",
+            3,
+            null,
+            3,
+            null,
+            null,
+            null,
+            [[
+                ["https://cdn.google.com/video_1.mp4", 1, "video/mp4"],
+                ["https://cdn.google.com/video_2.mp4", 2, "video/mp4"],
+                ["https://cdn.google.com/video_4.mp4", 4, "video/mp4"],
+            ]]
         ]);
         let url = extract_video_url(&raw);
         assert_eq!(url, Some("https://cdn.google.com/video_4.mp4".to_string()));
@@ -1545,11 +1600,15 @@ mod tests {
     fn test_extract_video_url_no_http_group() {
         // Groups exist but none have HTTP URLs
         let raw = serde_json::json!([
-            "video-id", "Video Title", 3, null, 3,
-            null, null, null,
-            [
-                [["not-a-url", 4, "video/mp4"]],
-            ]
+            "video-id",
+            "Video Title",
+            3,
+            null,
+            3,
+            null,
+            null,
+            null,
+            [[["not-a-url", 4, "video/mp4"]],]
         ]);
         assert!(extract_video_url(&raw).is_none());
     }
@@ -1565,14 +1624,18 @@ mod tests {
     fn test_extract_video_url_non_video_mime_ignored() {
         // Group has entries but none are video/mp4
         let raw = serde_json::json!([
-            "video-id", "Video Title", 3, null, 3,
-            null, null, null,
-            [
-                [
-                    ["https://cdn.google.com/video.mp4", 4, "audio/mp4"],
-                    ["https://cdn.google.com/thumb.jpg", 4, "image/jpeg"],
-                ]
-            ]
+            "video-id",
+            "Video Title",
+            3,
+            null,
+            3,
+            null,
+            null,
+            null,
+            [[
+                ["https://cdn.google.com/video.mp4", 4, "audio/mp4"],
+                ["https://cdn.google.com/thumb.jpg", 4, "image/jpeg"],
+            ]]
         ]);
         assert!(extract_video_url(&raw).is_none());
     }
@@ -1584,21 +1647,58 @@ mod tests {
         // Nested pattern: item[2][0][1][0] = HTTP URL
         // The item must have len > 2 for the function to inspect it
         let raw = serde_json::json!([
-            "info-id", "Info Title", 7, null, 3,
-            null, null, null, null, null, null, null, null, null, null,
-            [null, null, [[null, ["https://cdn.google.com/infographic.png"]]]]
+            "info-id",
+            "Info Title",
+            7,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [
+                null,
+                null,
+                [[null, ["https://cdn.google.com/infographic.png"]]]
+            ]
         ]);
         let url = extract_infographic_url(&raw);
-        assert_eq!(url, Some("https://cdn.google.com/infographic.png".to_string()));
+        assert_eq!(
+            url,
+            Some("https://cdn.google.com/infographic.png".to_string())
+        );
     }
 
     #[test]
     fn test_extract_infographic_url_filters_notebooklm() {
         // URL is notebooklm.google.com → filtered out
         let raw = serde_json::json!([
-            "info-id", "Info Title", 7, null, 3,
-            null, null, null, null, null, null, null, null, null, null,
-            [null, null, [[null, ["https://notebooklm.google.com/something"]]]]
+            "info-id",
+            "Info Title",
+            7,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [
+                null,
+                null,
+                [[null, ["https://notebooklm.google.com/something"]]]
+            ]
         ]);
         assert!(extract_infographic_url(&raw).is_none());
     }
@@ -1607,8 +1707,21 @@ mod tests {
     fn test_extract_infographic_url_returns_first_valid() {
         // Multiple items with URLs → returns first valid CDN URL
         let raw = serde_json::json!([
-            "info-id", "Info Title", 7, null, 3,
-            null, null, null, null, null, null, null, null, null, null,
+            "info-id",
+            "Info Title",
+            7,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
             [null, null, [[null, ["https://cdn.google.com/first.png"]]]],
             [null, null, [[null, ["https://cdn.google.com/second.png"]]]],
         ]);
@@ -1620,10 +1733,23 @@ mod tests {
     fn test_extract_infographic_url_skips_short_items() {
         // Items with len <= 2 are skipped
         let raw = serde_json::json!([
-            "info-id", "Info Title", 7, null, 3,
-            null, null, null, null, null, null, null, null, null, null,
-            [null, null],  // len=2, skipped
-            [null, null, [[null, ["https://cdn.google.com/info.png"]]]],  // valid
+            "info-id",
+            "Info Title",
+            7,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [null, null], // len=2, skipped
+            [null, null, [[null, ["https://cdn.google.com/info.png"]]]], // valid
         ]);
         let url = extract_infographic_url(&raw);
         assert_eq!(url, Some("https://cdn.google.com/info.png".to_string()));
@@ -1633,8 +1759,21 @@ mod tests {
     fn test_extract_infographic_url_no_url_found() {
         // No nested URL in any item
         let raw = serde_json::json!([
-            "info-id", "Info Title", 7, null, 3,
-            null, null, null, null, null, null, null, null, null, null,
+            "info-id",
+            "Info Title",
+            7,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
             [null, null, [[null, []]]]
         ]);
         assert!(extract_infographic_url(&raw).is_none());
@@ -1644,8 +1783,21 @@ mod tests {
     fn test_extract_infographic_url_empty_content() {
         // content is empty array
         let raw = serde_json::json!([
-            "info-id", "Info Title", 7, null, 3,
-            null, null, null, null, null, null, null, null, null, null,
+            "info-id",
+            "Info Title",
+            7,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
             [null, null, []]
         ]);
         assert!(extract_infographic_url(&raw).is_none());
@@ -1660,8 +1812,21 @@ mod tests {
     fn test_extract_infographic_url_skips_non_http() {
         // URL doesn't start with http
         let raw = serde_json::json!([
-            "info-id", "Info Title", 7, null, 3,
-            null, null, null, null, null, null, null, null, null, null,
+            "info-id",
+            "Info Title",
+            7,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
             [null, null, [[null, ["ftp://cdn.google.com/info.png"]]]]
         ]);
         assert!(extract_infographic_url(&raw).is_none());
@@ -1673,38 +1838,70 @@ mod tests {
         // art[16] = metadata: [config, title, slides, pdf_url, pptx_url]
         // Need exactly 16 nulls + padding before index 16
         serde_json::json!([
-            "deck-id", "Deck Title", 8, null, 3,  // indices 0-4
-            null, null, null, null, null, null, null, null, null, null, null,  // indices 5-15 (11 nulls)
+            "deck-id",
+            "Deck Title",
+            8,
+            null,
+            3, // indices 0-4
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,                                       // indices 5-15 (11 nulls)
             ["config", "Title", [], pdf_url, pptx_url]  // index 16 ✓
         ])
     }
 
     #[test]
     fn test_extract_slide_deck_url_pdf() {
-        let raw = make_slide_deck_raw("https://cdn.google.com/deck.pdf", "https://cdn.google.com/deck.pptx");
+        let raw = make_slide_deck_raw(
+            "https://cdn.google.com/deck.pdf",
+            "https://cdn.google.com/deck.pptx",
+        );
         let url = extract_slide_deck_url(&raw, "pdf");
         assert_eq!(url, Some("https://cdn.google.com/deck.pdf".to_string()));
     }
 
     #[test]
     fn test_extract_slide_deck_url_pptx() {
-        let raw = make_slide_deck_raw("https://cdn.google.com/deck.pdf", "https://cdn.google.com/deck.pptx");
+        let raw = make_slide_deck_raw(
+            "https://cdn.google.com/deck.pdf",
+            "https://cdn.google.com/deck.pptx",
+        );
         let url = extract_slide_deck_url(&raw, "pptx");
         assert_eq!(url, Some("https://cdn.google.com/deck.pptx".to_string()));
     }
 
     #[test]
     fn test_extract_slide_deck_url_default_pdf() {
-        let raw = make_slide_deck_raw("https://cdn.google.com/deck.pdf", "https://cdn.google.com/deck.pptx");
+        let raw = make_slide_deck_raw(
+            "https://cdn.google.com/deck.pdf",
+            "https://cdn.google.com/deck.pptx",
+        );
         let url = extract_slide_deck_url(&raw, "unknown_format");
         assert_eq!(url, Some("https://cdn.google.com/deck.pdf".to_string()));
     }
 
     #[test]
     fn test_extract_slide_deck_url_case_insensitive() {
-        let raw = make_slide_deck_raw("https://cdn.google.com/deck.pdf", "https://cdn.google.com/deck.pptx");
-        assert_eq!(extract_slide_deck_url(&raw, "PDF"), Some("https://cdn.google.com/deck.pdf".to_string()));
-        assert_eq!(extract_slide_deck_url(&raw, "Pptx"), Some("https://cdn.google.com/deck.pptx".to_string()));
+        let raw = make_slide_deck_raw(
+            "https://cdn.google.com/deck.pdf",
+            "https://cdn.google.com/deck.pptx",
+        );
+        assert_eq!(
+            extract_slide_deck_url(&raw, "PDF"),
+            Some("https://cdn.google.com/deck.pdf".to_string())
+        );
+        assert_eq!(
+            extract_slide_deck_url(&raw, "Pptx"),
+            Some("https://cdn.google.com/deck.pptx".to_string())
+        );
     }
 
     #[test]
@@ -1730,8 +1927,22 @@ mod tests {
     fn test_extract_slide_deck_url_pptx_missing() {
         // PPTX requested but art[16] only has 4 elements (no index 4)
         let raw = serde_json::json!([
-            "deck-id", "Deck Title", 8, null, 3,
-            null, null, null, null, null, null, null, null, null, null, null,
+            "deck-id",
+            "Deck Title",
+            8,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
             ["config", "Title", [], "https://cdn.google.com/deck.pdf"]
         ]);
         assert!(extract_slide_deck_url(&raw, "pptx").is_none());
@@ -1745,51 +1956,58 @@ mod tests {
     fn test_extract_report_content_direct_string() {
         // art[7] is already a string
         let raw = serde_json::json!([
-            "report-id", "Report Title", 2, null, 3,
-            null, null,
+            "report-id",
+            "Report Title",
+            2,
+            null,
+            3,
+            null,
+            null,
             "# My Report\n\nThis is the content."
         ]);
         let content = extract_report_content(&raw);
-        assert_eq!(content, Some("# My Report\n\nThis is the content.".to_string()));
+        assert_eq!(
+            content,
+            Some("# My Report\n\nThis is the content.".to_string())
+        );
     }
 
     #[test]
     fn test_extract_report_content_wrapped_in_array() {
         // art[7] is a 1-element list
         let raw = serde_json::json!([
-            "report-id", "Report Title", 2, null, 3,
-            null, null,
+            "report-id",
+            "Report Title",
+            2,
+            null,
+            3,
+            null,
+            null,
             ["# Wrapped Report\n\nContent here."]
         ]);
         let content = extract_report_content(&raw);
-        assert_eq!(content, Some("# Wrapped Report\n\nContent here.".to_string()));
+        assert_eq!(
+            content,
+            Some("# Wrapped Report\n\nContent here.".to_string())
+        );
     }
 
     #[test]
     fn test_extract_report_content_empty_string() {
-        let raw = serde_json::json!([
-            "report-id", "Report Title", 2, null, 3,
-            null, null, ""
-        ]);
+        let raw = serde_json::json!(["report-id", "Report Title", 2, null, 3, null, null, ""]);
         assert!(extract_report_content(&raw).is_none());
     }
 
     #[test]
     fn test_extract_report_content_empty_wrapper() {
         // art[7] is an empty list
-        let raw = serde_json::json!([
-            "report-id", "Report Title", 2, null, 3,
-            null, null, []
-        ]);
+        let raw = serde_json::json!(["report-id", "Report Title", 2, null, 3, null, null, []]);
         assert!(extract_report_content(&raw).is_none());
     }
 
     #[test]
     fn test_extract_report_content_null() {
-        let raw = serde_json::json!([
-            "report-id", "Report Title", 2, null, 3,
-            null, null, null
-        ]);
+        let raw = serde_json::json!(["report-id", "Report Title", 2, null, 3, null, null, null]);
         assert!(extract_report_content(&raw).is_none());
     }
 
@@ -1804,8 +2022,14 @@ mod tests {
     fn test_extract_report_content_with_markdown_formatting() {
         let markdown = "# Title\n\n## Section\n\n- Item 1\n- Item 2\n\n**Bold** and *italic*";
         let raw = serde_json::json!([
-            "report-id", "Report Title", 2, null, 3,
-            null, null, [markdown]
+            "report-id",
+            "Report Title",
+            2,
+            null,
+            3,
+            null,
+            null,
+            [markdown]
         ]);
         let content = extract_report_content(&raw).unwrap();
         assert!(content.contains("# Title"));
@@ -1826,12 +2050,18 @@ mod tests {
 
     #[test]
     fn test_extract_cell_text_string() {
-        assert_eq!(extract_cell_text(&Value::String("hello".to_string())), "hello");
+        assert_eq!(
+            extract_cell_text(&Value::String("hello".to_string())),
+            "hello"
+        );
     }
 
     #[test]
     fn test_extract_cell_text_integer_skipped() {
-        assert_eq!(extract_cell_text(&Value::Number(serde_json::Number::from(42))), "");
+        assert_eq!(
+            extract_cell_text(&Value::Number(serde_json::Number::from(42))),
+            ""
+        );
     }
 
     #[test]
@@ -1870,25 +2100,41 @@ mod tests {
         let mut all_rows = Vec::new();
 
         // Header row
-        let header_cells: Vec<Value> = headers.iter().map(|h| {
-            serde_json::json!([0, 10, [[0, 10, [[0, 10, [[h]]]]]]])
-        }).collect();
+        let header_cells: Vec<Value> = headers
+            .iter()
+            .map(|h| serde_json::json!([0, 10, [[0, 10, [[0, 10, [[h]]]]]]]))
+            .collect();
         all_rows.push(serde_json::json!([0, 100, header_cells]));
 
         // Data rows
         for row in rows {
-            let cells: Vec<Value> = row.iter().map(|c| {
-                serde_json::json!([0, 10, [[0, 10, [[0, 10, [[c]]]]]]])
-            }).collect();
+            let cells: Vec<Value> = row
+                .iter()
+                .map(|c| serde_json::json!([0, 10, [[0, 10, [[0, 10, [[c]]]]]]]))
+                .collect();
             all_rows.push(serde_json::json!([100, 200, cells]));
         }
 
         serde_json::json!([
-            "table-id", "Table Title", 9, null, 3,
-            null, null, null, null, null, null, null, null, null, null, null, null, null,
-            [
-                [[[[1, "table_type", 0, 0, [0, 0, all_rows]]]]]
-            ]
+            "table-id",
+            "Table Title",
+            9,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [[[[[1, "table_type", 0, 0, [0, 0, all_rows]]]]]]
         ])
     }
 
@@ -1936,8 +2182,8 @@ mod tests {
     #[test]
     fn test_parse_data_table_null_at_18() {
         let raw = serde_json::json!([
-            "table-id", "Table", 9, null, 3,
-            null, null, null, null, null, null, null, null, null, null, null, null, null, null
+            "table-id", "Table", 9, null, 3, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null
         ]);
         assert!(parse_data_table(&raw).is_none());
     }
@@ -1946,8 +2192,24 @@ mod tests {
     fn test_parse_data_table_empty_rows_array() {
         // rows_array exists but is empty
         let raw = serde_json::json!([
-            "table-id", "Table", 9, null, 3,
-            null, null, null, null, null, null, null, null, null, null, null, null, null,
+            "table-id",
+            "Table",
+            9,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
             [[[[[1, "type", 0, 0, [0, 0, []]]]]]]
         ]);
         assert!(parse_data_table(&raw).is_none());
@@ -1957,13 +2219,39 @@ mod tests {
     fn test_parse_data_table_skips_short_row_sections() {
         // Row sections with len < 3 are skipped
         let raw = serde_json::json!([
-            "table-id", "Table", 9, null, 3,
-            null, null, null, null, null, null, null, null, null, null, null, null, null,
-            [[[[[1, "type", 0, 0, [0, 0, [
-                [0, 100, [[0, 10, [[0, 10, [["H1"]]]]]]],  // valid header row
-                [100, 200],                                   // too short → skipped
-                [200, 300, [[0, 10, [[0, 10, [["D1"]]]]]]],  // valid data row
-            ]]]]]]]
+            "table-id",
+            "Table",
+            9,
+            null,
+            3,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [[[[[
+                1,
+                "type",
+                0,
+                0,
+                [
+                    0,
+                    0,
+                    [
+                        [0, 100, [[0, 10, [[0, 10, [["H1"]]]]]]], // valid header row
+                        [100, 200],                               // too short → skipped
+                        [200, 300, [[0, 10, [[0, 10, [["D1"]]]]]]], // valid data row
+                    ]
+                ]
+            ]]]]]
         ]);
         let (headers, rows) = parse_data_table(&raw).unwrap();
         assert_eq!(headers, vec!["H1"]);
@@ -2020,7 +2308,10 @@ mod tests {
         let html = make_html_with_app_data(&json);
         let result = extract_app_data(&html).unwrap();
         assert_eq!(result["flashcards"][0]["f"], "What is ownership?");
-        assert_eq!(result["flashcards"][1]["b"], "Referencing without taking ownership");
+        assert_eq!(
+            result["flashcards"][1]["b"],
+            "Referencing without taking ownership"
+        );
     }
 
     #[test]
@@ -2213,7 +2504,13 @@ mod tests {
     #[test]
     fn test_extract_note_content_new_format() {
         // New format: item[1] is an array, item[1][1] is the string
-        let item = serde_json::json!(["note-id", ["note-id", r#"{"nodes": []}"#], null, null, "Title"]);
+        let item = serde_json::json!([
+            "note-id",
+            ["note-id", r#"{"nodes": []}"#],
+            null,
+            null,
+            "Title"
+        ]);
         let content = extract_note_content(&item);
         assert_eq!(content, Some(r#"{"nodes": []}"#.to_string()));
     }
@@ -2276,12 +2573,16 @@ mod tests {
         let item = serde_json::json!(["note-id", json_str]);
         let result = extract_mind_map_json(&item).unwrap();
         assert_eq!(result["children"][0]["text"], "Root");
-        assert_eq!(result["children"][0]["children"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            result["children"][0]["children"].as_array().unwrap().len(),
+            2
+        );
     }
 
     #[test]
     fn test_extract_mind_map_json_nodes() {
-        let json_str = r#"{"nodes": [{"id": "r", "label": "Root"}, {"id": "c1", "label": "Child"}]}"#;
+        let json_str =
+            r#"{"nodes": [{"id": "r", "label": "Root"}, {"id": "c1", "label": "Child"}]}"#;
         let item = serde_json::json!(["note-id", json_str]);
         let result = extract_mind_map_json(&item).unwrap();
         assert_eq!(result["nodes"][0]["label"], "Root");

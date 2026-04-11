@@ -35,26 +35,28 @@ impl ConversationCache {
     /// Si no existe, crea una nueva con el conversation_id dado
     pub async fn get_or_create(&self, notebook_id: &str, conversation_id: &str) -> String {
         let mut cache = self.conversations.write().await;
-        
+
         if let Some((existing_conv_id, _)) = cache.get(notebook_id) {
             // Ya existe conversación para este notebook - devolver el ID existente
             return existing_conv_id.clone();
         }
-        
+
         // Crear nueva conversación
-        cache.insert(notebook_id.to_string(), (
-            conversation_id.to_string(),
-            ConversationHistory::default(),
-        ));
+        cache.insert(
+            notebook_id.to_string(),
+            (conversation_id.to_string(), ConversationHistory::default()),
+        );
         conversation_id.to_string()
     }
 
     /// Agregar un mensaje al historial de un notebook
     pub async fn add_message(&self, notebook_id: &str, question: String, answer: String) {
         let mut cache = self.conversations.write().await;
-        
+
         if let Some((_, history)) = cache.get_mut(notebook_id) {
-            history.messages.push(ConversationMessage { question, answer });
+            history
+                .messages
+                .push(ConversationMessage { question, answer });
         }
     }
 

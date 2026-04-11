@@ -18,28 +18,41 @@
 //! - **`_download_interactive`**: RPC `v9rmvd` solo toma `[artifact_id]`, NO
 //!   necesita `notebook_id`.
 
+use governor::{Quota, RateLimiter, clock::DefaultClock, state::InMemoryState, state::NotKeyed};
+use rand::Rng;
 use reqwest::{Client, header};
 use serde_json::Value;
 use std::time::Duration;
-use rand::Rng;
-use governor::{Quota, RateLimiter, state::NotKeyed, state::InMemoryState, clock::DefaultClock};
 use tokio::sync::Semaphore;
 use tracing::info;
 use uuid::Uuid;
 
 // Importar funciones del parser para acceso defensivo
 use crate::parser::{
-    extract_by_rpc_id, strip_antixssi_prefix, get_string_at, get_uuid_at, get_string_at_or_default,
-    extract_notebook_list, extract_sources, extract_nested_source_id, find_source_entry,
-    parse_artifact_list, parse_generation_result,
-    // URL extraction (Phase 6.1)
-    extract_audio_url, extract_video_url, extract_infographic_url, extract_slide_deck_url,
-    // Inline content extraction (Phase 6.4-6.7)
-    extract_report_content, parse_data_table,
-    extract_app_data,
-    is_mind_map_item, extract_mind_map_json,
     // Fulltext extraction
     extract_all_text,
+    extract_app_data,
+    // URL extraction (Phase 6.1)
+    extract_audio_url,
+    extract_by_rpc_id,
+    extract_infographic_url,
+    extract_mind_map_json,
+    extract_nested_source_id,
+    extract_notebook_list,
+    // Inline content extraction (Phase 6.4-6.7)
+    extract_report_content,
+    extract_slide_deck_url,
+    extract_sources,
+    extract_video_url,
+    find_source_entry,
+    get_string_at,
+    get_string_at_or_default,
+    get_uuid_at,
+    is_mind_map_item,
+    parse_artifact_list,
+    parse_data_table,
+    parse_generation_result,
+    strip_antixssi_prefix,
 };
 
 // Re-exportar errores para uso externo
@@ -49,21 +62,22 @@ pub use crate::errors::NotebookLmError;
 pub use crate::source_poller::SourcePoller;
 
 // Re-exportar conversation cache
-pub use crate::conversation_cache::{ConversationCache, SharedConversationCache, new_conversation_cache};
+pub use crate::conversation_cache::{
+    ConversationCache, SharedConversationCache, new_conversation_cache,
+};
 
 // Re-exportar artifact types
 pub use crate::parser::Artifact;
 pub use crate::rpc::artifacts::{
-    ArtifactConfig, ArtifactType, ArtifactTypeCode, ArtifactStatus, GenerationStatus,
-    MindMapResult,
-    AudioFormat, AudioLength, VideoFormat, VideoStyle, QuizDifficulty, QuizQuantity,
-    InfographicOrientation, InfographicDetail, InfographicStyle, SlideDeckFormat,
-    SlideDeckLength, ReportFormat, rpc_ids,
+    ArtifactConfig, ArtifactStatus, ArtifactType, ArtifactTypeCode, AudioFormat, AudioLength,
+    GenerationStatus, InfographicDetail, InfographicOrientation, InfographicStyle, MindMapResult,
+    QuizDifficulty, QuizQuantity, ReportFormat, SlideDeckFormat, SlideDeckLength, VideoFormat,
+    VideoStyle, rpc_ids,
 };
 
 // Re-exportar notebook lifecycle & sharing types
 pub use crate::rpc::notebooks::{
-    ShareAccess, SharePermission, SharedUser, ShareStatus, SuggestedTopic, NotebookSummary,
+    NotebookSummary, ShareAccess, SharePermission, ShareStatus, SharedUser, SuggestedTopic,
 };
 
 type Limiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
@@ -88,11 +102,7 @@ pub fn is_youtube_url(url: &str) -> bool {
 
     matches!(
         host,
-        "youtube.com"
-            | "www.youtube.com"
-            | "m.youtube.com"
-            | "music.youtube.com"
-            | "youtu.be"
+        "youtube.com" | "www.youtube.com" | "m.youtube.com" | "music.youtube.com" | "youtu.be"
     )
 }
 
@@ -112,7 +122,10 @@ pub fn is_youtube_url(url: &str) -> bool {
 /// - Domain is not in the trusted list
 pub fn validate_google_domain(url: &str) -> Result<(), NotebookLmError> {
     let parsed = url::Url::parse(url).map_err(|_| {
-        NotebookLmError::DownloadFailed(format!("Invalid download URL: {}", &url[..url.len().min(80)]))
+        NotebookLmError::DownloadFailed(format!(
+            "Invalid download URL: {}",
+            &url[..url.len().min(80)]
+        ))
     })?;
 
     if parsed.scheme() != "https" {
@@ -123,13 +136,16 @@ pub fn validate_google_domain(url: &str) -> Result<(), NotebookLmError> {
     }
 
     let host = parsed.host_str().ok_or_else(|| {
-        NotebookLmError::DownloadFailed(format!("Download URL has no host: {}", &url[..url.len().min(80)]))
+        NotebookLmError::DownloadFailed(format!(
+            "Download URL has no host: {}",
+            &url[..url.len().min(80)]
+        ))
     })?;
 
     let trusted = [".google.com", ".googleusercontent.com", ".googleapis.com"];
-    let is_trusted = trusted.iter().any(|domain| {
-        host == domain.trim_start_matches('.') || host.ends_with(domain)
-    });
+    let is_trusted = trusted
+        .iter()
+        .any(|domain| host == domain.trim_start_matches('.') || host.ends_with(domain));
 
     if is_trusted {
         Ok(())
@@ -161,7 +177,6 @@ pub struct Notebook {
     #[serde(default)]
     pub created_at: Option<String>,
 }
-
 
 pub struct NotebookLmClient {
     http: Client,
@@ -196,20 +211,26 @@ impl NotebookLmClient {
 
         // Client for RPC calls — needs Content-Type: application/x-www-form-urlencoded
         let mut headers = crate::browser_headers::browser_headers();
-        headers.insert(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap());
-        headers.insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/x-www-form-urlencoded;charset=utf-8"));
+        headers.insert(
+            header::COOKIE,
+            header::HeaderValue::from_str(&cookie).unwrap(),
+        );
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/x-www-form-urlencoded;charset=utf-8"),
+        );
 
-        let http = Client::builder()
-            .default_headers(headers)
-            .build()
-            .unwrap();
+        let http = Client::builder().default_headers(headers).build().unwrap();
 
         // Client for file uploads — cookie only, NO global Content-Type.
         // Step 2 (start resumable) sends JSON body.
         // Step 3 (stream upload) sends raw bytes.
         // Each request sets its own Content-Type header.
         let mut upload_headers = crate::browser_headers::browser_headers();
-        upload_headers.insert(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap());
+        upload_headers.insert(
+            header::COOKIE,
+            header::HeaderValue::from_str(&cookie).unwrap(),
+        );
 
         let upload_http = Client::builder()
             .default_headers(upload_headers)
@@ -240,24 +261,29 @@ impl NotebookLmClient {
         if attempt == 0 {
             return;
         }
-        
+
         // Base delay: 2 seconds, doubling each attempt (1→2, 2→4, 4→8, ...)
         let base_delay = 2u64.pow(attempt.min(6)); // Cap at 64 seconds
         let jitter = {
             let mut rng = rand::thread_rng();
             rng.gen_range(100..1000) // 100ms to 1s jitter
         };
-        
+
         let total_delay = (base_delay * 1000) + jitter;
         let capped_delay = total_delay.min(30000); // Max 30 seconds
-        
+
         tokio::time::sleep(Duration::from_millis(capped_delay)).await;
     }
 
     /// Retry wrapper with circuit breaker, auto CSRF refresh, exponential backoff, and Retry-After
-    async fn batchexecute_with_retry(&self, rpc_id: &str, payload: &str, max_retries: u32) -> Result<Value, String> {
+    async fn batchexecute_with_retry(
+        &self,
+        rpc_id: &str,
+        payload: &str,
+        max_retries: u32,
+    ) -> Result<Value, String> {
         let mut last_error = String::new();
-        
+
         for attempt in 0..=max_retries {
             // --- Circuit breaker check ---
             self.check_circuit_breaker()?;
@@ -272,7 +298,10 @@ impl NotebookLmClient {
 
                     // --- Auth error detection + auto CSRF refresh ---
                     if e.starts_with("AUTH_ERROR:") && attempt == 0 {
-                        info!("Auth error detected for {}, attempting CSRF refresh...", rpc_id);
+                        info!(
+                            "Auth error detected for {}, attempting CSRF refresh...",
+                            rpc_id
+                        );
                         let _lock = self.refresh_lock.lock().await;
 
                         match self.refresh_csrf_internal().await {
@@ -311,15 +340,25 @@ impl NotebookLmClient {
                             info!("429 Rate limited. Retry-After: {}ms", retry_ms);
                             tokio::time::sleep(Duration::from_millis(retry_ms)).await;
                         } else {
-                            info!("Retry {}/{} for {}: {}", attempt + 1, max_retries + 1, rpc_id, last_error);
+                            info!(
+                                "Retry {}/{} for {}: {}",
+                                attempt + 1,
+                                max_retries + 1,
+                                rpc_id,
+                                last_error
+                            );
                             Self::apply_exponential_backoff(attempt).await;
                         }
                     }
                 }
             }
         }
-        
-        Err(format!("Failed after {} retries: {}", max_retries + 1, last_error))
+
+        Err(format!(
+            "Failed after {} retries: {}",
+            max_retries + 1,
+            last_error
+        ))
     }
 
     async fn apply_jitter() {
@@ -339,15 +378,16 @@ impl NotebookLmClient {
         self.limiter.until_ready().await;
         Self::apply_jitter().await;
 
-        let req_array = format!("[[[\"{}\",\"{}\",null,\"generic\"]]]", rpc_id, payload.replace("\"", "\\\""));
+        let req_array = format!(
+            "[[[\"{}\",\"{}\",null,\"generic\"]]]",
+            rpc_id,
+            payload.replace("\"", "\\\"")
+        );
 
         let csrf = self.csrf.read().await.clone();
         let sid = self.sid.read().await.clone();
 
-        let form_data = [
-            ("f.req", req_array),
-            ("at", csrf)
-        ];
+        let form_data = [("f.req", req_array), ("at", csrf)];
 
         // Build batchexecute URL with session ID.
         // f.sid (FdrFJe) is REQUIRED by Google's RPC router — without it,
@@ -360,7 +400,9 @@ impl NotebookLmClient {
             url.push_str(&format!("&source-path=/&f.sid={}", sid));
         }
 
-        let res = self.http.post(&url)
+        let res = self
+            .http
+            .post(&url)
             .form(&form_data)
             .send()
             .await
@@ -388,20 +430,31 @@ impl NotebookLmClient {
             return Err(format!("Error HTTP {}", res.status()));
         }
 
-        let text = res.text().await.map_err(|e| format!("No body text: {}", e))?;
-        
+        let text = res
+            .text()
+            .await
+            .map_err(|e| format!("No body text: {}", e))?;
+
         // DEBUG: Log first 500 chars of raw response
-        tracing::debug!("Raw response ({} bytes): {}", text.len(), &text[..text.len().min(500)]);
-        
+        tracing::debug!(
+            "Raw response ({} bytes): {}",
+            text.len(),
+            &text[..text.len().min(500)]
+        );
+
         // Usar parser defensivo: strip_antixssi_prefix
         let cleaned = strip_antixssi_prefix(&text);
-        
+
         // Parsear el JSON limpio
         let v: Value = serde_json::from_str(&cleaned).map_err(|e| {
-            tracing::error!("JSON parse failed. Cleaned ({} bytes): {}", cleaned.len(), &cleaned[..cleaned.len().min(500)]);
+            tracing::error!(
+                "JSON parse failed. Cleaned ({} bytes): {}",
+                cleaned.len(),
+                &cleaned[..cleaned.len().min(500)]
+            );
             e.to_string()
         })?;
-        
+
         tracing::debug!("Parsed JSON: {:?}", &v);
         Ok(v)
     }
@@ -410,12 +463,12 @@ impl NotebookLmClient {
         let response = self.batchexecute("wXbhsf", payload).await?;
 
         // Usar parser defensivo: extract_by_rpc_id
-        let inner = extract_by_rpc_id(&response, "wXbhsf")
-            .ok_or("No se encontró respuesta wXbhsf")?;
-        
+        let inner =
+            extract_by_rpc_id(&response, "wXbhsf").ok_or("No se encontró respuesta wXbhsf")?;
+
         // Extraer lista de notebooks: [[title, sources, uuid, ...], ...]
-        let notebook_list = extract_notebook_list(&inner)
-            .ok_or("No se pudo parsear lista de notebooks")?;
+        let notebook_list =
+            extract_notebook_list(&inner).ok_or("No se pudo parsear lista de notebooks")?;
 
         let mut notebooks = Vec::new();
         for nb_arr_val in notebook_list {
@@ -423,7 +476,7 @@ impl NotebookLmClient {
                 // Acceso defensivo: get_string_at en lugar de índice directo
                 let title = get_string_at_or_default(nb_arr, 0, "Sin título");
                 let id = get_uuid_at(nb_arr, 2).unwrap_or_default();
-                
+
                 if !id.is_empty() {
                     notebooks.push(Notebook {
                         id,
@@ -433,19 +486,22 @@ impl NotebookLmClient {
                 }
             }
         }
-        
+
         info!("Parsed {} notebooks from wXbhsf response", notebooks.len());
         Ok(notebooks)
     }
 
     pub async fn create_notebook(&self, title: &str) -> Result<String, String> {
-        let inner_json = format!("[\"{}\",null,null,[2],[1,null,null,null,null,null,null,null,null,null,[1]]]", title.replace('\"', "\\\""));
+        let inner_json = format!(
+            "[\"{}\",null,null,[2],[1,null,null,null,null,null,null,null,null,null,[1]]]",
+            title.replace('\"', "\\\"")
+        );
         let response = self.batchexecute("CCqFvf", &inner_json).await?;
-        
+
         // Usar parser defensivo: extract_by_rpc_id
-        let inner = extract_by_rpc_id(&response, "CCqFvf")
-            .ok_or("No se encontró respuesta CCqFvf")?;
-        
+        let inner =
+            extract_by_rpc_id(&response, "CCqFvf").ok_or("No se encontró respuesta CCqFvf")?;
+
         // Extraer UUID del inner_json: ["", null, "UUID", ...]
         get_uuid_at(inner.as_array().unwrap(), 2)
             .ok_or_else(|| "No se pudo extraer el UUID del cuaderno nuevo".to_string())
@@ -475,28 +531,42 @@ impl NotebookLmClient {
     /// Rename a source in a notebook.
     ///
     /// RPC: `b7Wfje`, payload: `[null, [source_id], [[[new_title]]]]`
-    pub async fn rename_source(&self, notebook_id: &str, source_id: &str, new_title: &str) -> Result<(), String> {
+    pub async fn rename_source(
+        &self,
+        notebook_id: &str,
+        source_id: &str,
+        new_title: &str,
+    ) -> Result<(), String> {
         let t = new_title.replace('\"', "\\\"");
         let inner_json = format!("[null,[\"{}\"],[[[\"{}\"]]]]", source_id, t);
         self.batchexecute("b7Wfje", &inner_json).await?;
-        info!("Renamed source {} to '{}' in notebook {}", source_id, new_title, notebook_id);
+        info!(
+            "Renamed source {} to '{}' in notebook {}",
+            source_id, new_title, notebook_id
+        );
         Ok(())
     }
 
     /// Get the full indexed text of a source (extracted by Google from PDFs, web pages, etc.).
     ///
     /// RPC: `hizoJc`, payload: `[[source_id], [2], [2]]`
-    pub async fn get_source_fulltext(&self, _notebook_id: &str, source_id: &str) -> Result<String, String> {
+    pub async fn get_source_fulltext(
+        &self,
+        _notebook_id: &str,
+        source_id: &str,
+    ) -> Result<String, String> {
         let inner_json = format!("[[\"{}\"],[2],[2]]", source_id);
         let response = self.batchexecute("hizoJc", &inner_json).await?;
 
-        let inner = extract_by_rpc_id(&response, "hizoJc")
-            .ok_or("No se encontró respuesta hizoJc")?;
+        let inner =
+            extract_by_rpc_id(&response, "hizoJc").ok_or("No se encontró respuesta hizoJc")?;
 
         // Google returns text fragments nested in result[3][0] — use recursive extractor
         let fragments = extract_all_text(&inner, 0, 10);
         if fragments.is_empty() {
-            return Err("No se pudo extraer texto de la fuente. ¿La fuente está indexada?".to_string());
+            return Err(
+                "No se pudo extraer texto de la fuente. ¿La fuente está indexada?".to_string(),
+            );
         }
 
         Ok(fragments.join("\n"))
@@ -510,22 +580,30 @@ impl NotebookLmClient {
     /// Step 2 RPC: `cYAfTb` — update note with title and content
     ///
     /// Returns the note_id.
-    pub async fn create_note(&self, notebook_id: &str, title: &str, content: &str) -> Result<String, String> {
+    pub async fn create_note(
+        &self,
+        notebook_id: &str,
+        title: &str,
+        content: &str,
+    ) -> Result<String, String> {
         // Step 1: Create empty note
-        let create_payload = format!(
-            "[\"{}\",\"\",[1],null,\"New Note\"]",
-            notebook_id
-        );
+        let create_payload = format!("[\"{}\",\"\",[1],null,\"New Note\"]", notebook_id);
         let create_response = self.batchexecute("CYK0Xb", &create_payload).await?;
 
         let create_inner = extract_by_rpc_id(&create_response, "CYK0Xb")
             .ok_or("No se encontró respuesta CYK0Xb al crear nota")?;
 
         // Extract note_id from response
-        let arr = create_inner.as_array().ok_or("CYK0Xb response no es array")?;
-        let first = arr.first().ok_or("CYK0Xb array vacío")?.as_array().ok_or("CYK0Xb no es array anidado")?;
-        let note_id = get_string_at(first, 0)
-            .ok_or("No se pudo extraer note_id de la respuesta CYK0Xb")?;
+        let arr = create_inner
+            .as_array()
+            .ok_or("CYK0Xb response no es array")?;
+        let first = arr
+            .first()
+            .ok_or("CYK0Xb array vacío")?
+            .as_array()
+            .ok_or("CYK0Xb no es array anidado")?;
+        let note_id =
+            get_string_at(first, 0).ok_or("No se pudo extraer note_id de la respuesta CYK0Xb")?;
 
         info!("Created empty note {} in notebook {}", note_id, notebook_id);
 
@@ -538,19 +616,25 @@ impl NotebookLmClient {
         );
         self.batchexecute("cYAfTb", &update_payload).await?;
 
-        info!("Updated note {} with title '{}' in notebook {}", note_id, title, notebook_id);
+        info!(
+            "Updated note {} with title '{}' in notebook {}",
+            note_id, title, notebook_id
+        );
         Ok(note_id)
     }
 
     /// List all active notes in a notebook (filters out soft-deleted notes with status=2).
     ///
     /// RPC: `cFji9`, payload: `[notebook_id]`
-    pub async fn list_notes(&self, notebook_id: &str) -> Result<Vec<crate::rpc::notes::Note>, String> {
+    pub async fn list_notes(
+        &self,
+        notebook_id: &str,
+    ) -> Result<Vec<crate::rpc::notes::Note>, String> {
         let inner_json = format!("[\"{}\"]", notebook_id);
         let response = self.batchexecute("cFji9", &inner_json).await?;
 
-        let inner = extract_by_rpc_id(&response, "cFji9")
-            .ok_or("No se encontró respuesta cFji9")?;
+        let inner =
+            extract_by_rpc_id(&response, "cFji9").ok_or("No se encontró respuesta cFji9")?;
 
         let arr = inner.as_array().ok_or("cFji9 response no es array")?;
         let mut notes = Vec::new();
@@ -591,7 +675,12 @@ impl NotebookLmClient {
         Ok(())
     }
 
-    pub async fn add_source(&self, notebook_id: &str, title: &str, content: &str) -> Result<String, String> {
+    pub async fn add_source(
+        &self,
+        notebook_id: &str,
+        title: &str,
+        content: &str,
+    ) -> Result<String, String> {
         let t = title.replace('\"', "\\\"");
         let c = content.replace('\"', "\\\"");
         let inner_json = format!(
@@ -601,14 +690,22 @@ impl NotebookLmClient {
         let response = self.batchexecute("izAoDd", &inner_json).await?;
 
         // Usar parser defensivo: extract_by_rpc_id
-        let inner = extract_by_rpc_id(&response, "izAoDd")
-            .ok_or("No se encontró respuesta izAoDd")?;
-        
+        let inner =
+            extract_by_rpc_id(&response, "izAoDd").ok_or("No se encontró respuesta izAoDd")?;
+
         // Extraer source UUID: [[["SOURCE_UUID"]], ...]
         let arr = inner.as_array().ok_or("Inner no es array")?;
-        let first = arr.first().ok_or("Array vacío")?.as_array().ok_or("No es array anidado")?;
-        let first_inner = first.first().ok_or("Array anidado vacío")?.as_array().ok_or("No es array")?;
-        
+        let first = arr
+            .first()
+            .ok_or("Array vacío")?
+            .as_array()
+            .ok_or("No es array anidado")?;
+        let first_inner = first
+            .first()
+            .ok_or("Array anidado vacío")?
+            .as_array()
+            .ok_or("No es array")?;
+
         get_string_at(first_inner, 0)
             .ok_or_else(|| "No se pudo extraer el UUID de la fuente nueva".to_string())
     }
@@ -631,13 +728,21 @@ impl NotebookLmClient {
         let response = self.batchexecute("izAoDd", &inner_json).await?;
 
         // Parser defensivo: extract_by_rpc_id
-        let inner = extract_by_rpc_id(&response, "izAoDd")
-            .ok_or("No se encontró respuesta izAoDd")?;
+        let inner =
+            extract_by_rpc_id(&response, "izAoDd").ok_or("No se encontró respuesta izAoDd")?;
 
         // Extraer source UUID: [[["SOURCE_UUID"]], ...]
         let arr = inner.as_array().ok_or("Inner no es array")?;
-        let first = arr.first().ok_or("Array vacío")?.as_array().ok_or("No es array anidado")?;
-        let first_inner = first.first().ok_or("Array anidado vacío")?.as_array().ok_or("No es array")?;
+        let first = arr
+            .first()
+            .ok_or("Array vacío")?
+            .as_array()
+            .ok_or("No es array anidado")?;
+        let first_inner = first
+            .first()
+            .ok_or("Array anidado vacío")?
+            .as_array()
+            .ok_or("No es array")?;
 
         get_string_at(first_inner, 0)
             .ok_or_else(|| "No se pudo extraer el UUID de la fuente nueva".to_string())
@@ -673,13 +778,21 @@ impl NotebookLmClient {
         let response = self.batchexecute("izAoDd", &inner_json).await?;
 
         // Parser defensivo: extract_by_rpc_id
-        let inner = extract_by_rpc_id(&response, "izAoDd")
-            .ok_or("No se encontró respuesta izAoDd")?;
+        let inner =
+            extract_by_rpc_id(&response, "izAoDd").ok_or("No se encontró respuesta izAoDd")?;
 
         // Extraer source UUID: [[["SOURCE_UUID"]], ...]
         let arr = inner.as_array().ok_or("Inner no es array")?;
-        let first = arr.first().ok_or("Array vacío")?.as_array().ok_or("No es array anidado")?;
-        let first_inner = first.first().ok_or("Array anidado vacío")?.as_array().ok_or("No es array")?;
+        let first = arr
+            .first()
+            .ok_or("Array vacío")?
+            .as_array()
+            .ok_or("No es array anidado")?;
+        let first_inner = first
+            .first()
+            .ok_or("Array anidado vacío")?
+            .as_array()
+            .ok_or("No es array")?;
 
         get_string_at(first_inner, 0)
             .ok_or_else(|| "No se pudo extraer el UUID de la fuente nueva".to_string())
@@ -689,7 +802,11 @@ impl NotebookLmClient {
     ///
     /// Calls `o4cbdc` with `[[filename]]` params and extracts the SOURCE_ID
     /// from the deeply nested response: `[[[[source_id]]]]`.
-    async fn _register_file_source(&self, notebook_id: &str, filename: &str) -> Result<String, String> {
+    async fn _register_file_source(
+        &self,
+        notebook_id: &str,
+        filename: &str,
+    ) -> Result<String, String> {
         let params = crate::rpc::sources::build_file_register_params(notebook_id, filename);
         let inner_json = serde_json::to_string(&params)
             .map_err(|e| format!("Failed to serialize file register params: {}", e))?;
@@ -697,8 +814,8 @@ impl NotebookLmClient {
         let response = self.batchexecute("o4cbdc", &inner_json).await?;
 
         // Parser defensivo: extract_by_rpc_id
-        let inner = extract_by_rpc_id(&response, "o4cbdc")
-            .ok_or("No se encontró respuesta o4cbdc")?;
+        let inner =
+            extract_by_rpc_id(&response, "o4cbdc").ok_or("No se encontró respuesta o4cbdc")?;
 
         // Extraer SOURCE_ID del nesting profundo: [[[[source_id]]]]
         extract_nested_source_id(&inner)
@@ -720,18 +837,22 @@ impl NotebookLmClient {
         let body_json = serde_json::to_string(&body)
             .map_err(|e| format!("Failed to serialize upload session body: {}", e))?;
 
-        let url = format!(
-            "{}?authuser=0",
-            crate::rpc::sources::UPLOAD_URL
-        );
+        let url = format!("{}?authuser=0", crate::rpc::sources::UPLOAD_URL);
 
-        let res = self.upload_http
+        let res = self
+            .upload_http
             .post(&url)
             .header("Content-Type", "application/json")
             .header("x-goog-upload-command", "start")
             .header("x-goog-upload-protocol", "resumable")
-            .header("x-goog-upload-header-content-length", _file_size.to_string())
-            .header("x-goog-upload-header-content-type", "application/octet-stream")
+            .header(
+                "x-goog-upload-header-content-length",
+                _file_size.to_string(),
+            )
+            .header(
+                "x-goog-upload-header-content-type",
+                "application/octet-stream",
+            )
             .body(body_json)
             .send()
             .await
@@ -755,17 +876,26 @@ impl NotebookLmClient {
     /// Reads the file from disk using `tokio::fs::File`, converts to a stream
     /// via `ReaderStream`, and wraps in `reqwest::Body::wrap_stream()`.
     /// Acquires a semaphore permit to limit concurrent uploads.
-    async fn _stream_upload_file(&self, upload_url: &str, file_path: &std::path::Path) -> Result<(), String> {
-        let _permit = self.upload_semaphore.acquire().await
+    async fn _stream_upload_file(
+        &self,
+        upload_url: &str,
+        file_path: &std::path::Path,
+    ) -> Result<(), String> {
+        let _permit = self
+            .upload_semaphore
+            .acquire()
+            .await
             .map_err(|_| "Upload semaphore closed".to_string())?;
 
-        let file = tokio::fs::File::open(file_path).await
+        let file = tokio::fs::File::open(file_path)
+            .await
             .map_err(|e| format!("Failed to open file for upload: {}", e))?;
 
         let reader_stream = tokio_util::io::ReaderStream::new(file);
         let body = reqwest::Body::wrap_stream(reader_stream);
 
-        let res = self.upload_http
+        let res = self
+            .upload_http
             .post(upload_url)
             .header("x-goog-upload-command", "upload, finalize")
             .header("x-goog-upload-offset", "0")
@@ -791,7 +921,11 @@ impl NotebookLmClient {
     ///
     /// Validates path exists + is_file before any network call.
     /// Maps errors to structured `NotebookLmError` variants.
-    pub async fn add_file_source(&self, notebook_id: &str, file_path: &str) -> Result<String, String> {
+    pub async fn add_file_source(
+        &self,
+        notebook_id: &str,
+        file_path: &str,
+    ) -> Result<String, String> {
         let path = std::path::Path::new(file_path);
 
         // Validate: path must exist and be a file
@@ -799,33 +933,47 @@ impl NotebookLmClient {
             return Err(NotebookLmError::FileNotFound(file_path.to_string()).to_string());
         }
         if !path.is_file() {
-            return Err(NotebookLmError::ValidationError(format!("Path is a directory, not a file: {}", file_path)).to_string());
+            return Err(NotebookLmError::ValidationError(format!(
+                "Path is a directory, not a file: {}",
+                file_path
+            ))
+            .to_string());
         }
 
         // Get file size for the upload session
-        let file_size = tokio::fs::metadata(path).await
+        let file_size = tokio::fs::metadata(path)
+            .await
             .map_err(|e| format!("Failed to read file metadata: {}", e))?
             .len();
 
         // Get filename from path
-        let filename = path.file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| NotebookLmError::ValidationError("Cannot extract filename from path".to_string()).to_string())?;
+        let filename = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
+            NotebookLmError::ValidationError("Cannot extract filename from path".to_string())
+                .to_string()
+        })?;
 
-        info!("Uploading file '{}' ({} bytes) to notebook {}", filename, file_size, notebook_id);
+        info!(
+            "Uploading file '{}' ({} bytes) to notebook {}",
+            filename, file_size, notebook_id
+        );
 
         // Step 1: Register file source via RPC
-        let source_id = self._register_file_source(notebook_id, filename).await
+        let source_id = self
+            ._register_file_source(notebook_id, filename)
+            .await
             .map_err(|e| format!("Step 1 (register) failed: {}", e))?;
         info!("File registered. SOURCE_ID: {}", source_id);
 
         // Step 2: Start resumable upload session
-        let upload_url = self._start_resumable_upload(notebook_id, filename, file_size, &source_id).await
+        let upload_url = self
+            ._start_resumable_upload(notebook_id, filename, file_size, &source_id)
+            .await
             .map_err(|e| format!("Step 2 (start session) failed: {}", e))?;
         info!("Upload session started. Got upload URL");
 
         // Step 3: Stream file to upload URL
-        self._stream_upload_file(&upload_url, path).await
+        self._stream_upload_file(&upload_url, path)
+            .await
             .map_err(|e| format!("Step 3 (stream upload) failed: {}", e))?;
         info!("File upload complete");
 
@@ -839,11 +987,14 @@ impl NotebookLmClient {
     ///
     /// RPC: `rLM1Ne`, payload: `[notebook_id, null, [2], null, 0]`
     pub async fn get_notebook(&self, notebook_id: &str) -> Result<Notebook, String> {
-        let payload = format!("[\"{}\", null, [2], null, 0]", notebook_id.replace('"', "\\\""));
+        let payload = format!(
+            "[\"{}\", null, [2], null, 0]",
+            notebook_id.replace('"', "\\\"")
+        );
         let response = self.batchexecute("rLM1Ne", &payload).await?;
 
-        let inner = extract_by_rpc_id(&response, "rLM1Ne")
-            .ok_or("No se encontró respuesta rLM1Ne")?;
+        let inner =
+            extract_by_rpc_id(&response, "rLM1Ne").ok_or("No se encontró respuesta rLM1Ne")?;
 
         let details = crate::rpc::notebooks::parse_notebook_details(&inner)
             .ok_or_else(|| "No se pudo parsear detalles del notebook".to_string())?;
@@ -862,7 +1013,11 @@ impl NotebookLmClient {
     /// to return confirmed data with the new title.
     ///
     /// RPC: `s0tc2d`, payload: `[id, [[null, null, null, [null, title]]]]`
-    pub async fn rename_notebook(&self, notebook_id: &str, new_title: &str) -> Result<Notebook, String> {
+    pub async fn rename_notebook(
+        &self,
+        notebook_id: &str,
+        new_title: &str,
+    ) -> Result<Notebook, String> {
         let escaped_title = new_title.replace('"', "\\\"");
         let inner_json = format!(
             "[\"{}\", [[null, null, null, [null, \"{}\"]]]]",
@@ -882,11 +1037,15 @@ impl NotebookLmClient {
         let inner_json = format!("[\"{}\", [2]]", notebook_id);
         let response = self.batchexecute("VfAZjd", &inner_json).await?;
 
-        let inner = extract_by_rpc_id(&response, "VfAZjd")
-            .ok_or("No se encontró respuesta VfAZjd")?;
+        let inner =
+            extract_by_rpc_id(&response, "VfAZjd").ok_or("No se encontró respuesta VfAZjd")?;
 
         let summary = crate::rpc::notebooks::parse_summary(&inner);
-        info!("Got summary for notebook {} ({} topics)", notebook_id, summary.suggested_topics.len());
+        info!(
+            "Got summary for notebook {} ({} topics)",
+            notebook_id,
+            summary.suggested_topics.len()
+        );
         Ok(summary)
     }
 
@@ -897,13 +1056,15 @@ impl NotebookLmClient {
         let inner_json = format!("[\"{}\", [2]]", notebook_id);
         let response = self.batchexecute("JFMDGd", &inner_json).await?;
 
-        let inner = extract_by_rpc_id(&response, "JFMDGd")
-            .ok_or("No se encontró respuesta JFMDGd")?;
+        let inner =
+            extract_by_rpc_id(&response, "JFMDGd").ok_or("No se encontró respuesta JFMDGd")?;
 
         let status = crate::rpc::notebooks::parse_share_status(&inner, notebook_id);
         info!(
             "Got share status for notebook {} (public={}, users={})",
-            notebook_id, status.is_public, status.shared_users.len()
+            notebook_id,
+            status.is_public,
+            status.shared_users.len()
         );
         Ok(status)
     }
@@ -912,14 +1073,22 @@ impl NotebookLmClient {
     /// the share status to return confirmed data.
     ///
     /// RPC: `QDyure`, payload: `[[[id, null, [access], [access, ""]]], 1, null, [2]]`
-    pub async fn set_sharing_public(&self, notebook_id: &str, public: bool) -> Result<ShareStatus, String> {
+    pub async fn set_sharing_public(
+        &self,
+        notebook_id: &str,
+        public: bool,
+    ) -> Result<ShareStatus, String> {
         let access_code = if public { 1 } else { 0 };
         let inner_json = format!(
             "[[[\"{}\", null, [{}], [{} , \"\"]]], 1, null, [2]]",
             notebook_id, access_code, access_code
         );
         self.batchexecute("QDyure", &inner_json).await?;
-        info!("Set notebook {} to {}", notebook_id, if public { "public" } else { "private" });
+        info!(
+            "Set notebook {} to {}",
+            notebook_id,
+            if public { "public" } else { "private" }
+        );
 
         // Post-mutation read: return confirmed status
         self.get_share_status(notebook_id).await
@@ -927,25 +1096,29 @@ impl NotebookLmClient {
 
     /// Get the source IDs for a given notebook
     pub async fn get_notebook_sources(&self, notebook_id: &str) -> Result<Vec<String>, String> {
-        let payload = format!("[\"{}\", null, [2], null, 0]", notebook_id.replace('"', "\\\""));
+        let payload = format!(
+            "[\"{}\", null, [2], null, 0]",
+            notebook_id.replace('"', "\\\"")
+        );
         let response = self.batchexecute("rLM1Ne", &payload).await?;
-        
+
         // Usar parser defensivo: extract_by_rpc_id
-        let inner = extract_by_rpc_id(&response, "rLM1Ne")
-            .ok_or("No se encontró respuesta rLM1Ne")?;
-        
+        let inner =
+            extract_by_rpc_id(&response, "rLM1Ne").ok_or("No se encontró respuesta rLM1Ne")?;
+
         // Extraer notebook_data: [[title, sources, notebook_id, ...]]
-        let notebook_list = extract_notebook_list(&inner)
-            .ok_or("No se pudo parsear lista de notebooks")?;
-        
-        let notebook_data = notebook_list.first()
+        let notebook_list =
+            extract_notebook_list(&inner).ok_or("No se pudo parsear lista de notebooks")?;
+
+        let notebook_data = notebook_list
+            .first()
             .and_then(|v| v.as_array())
             .ok_or("No se encontraron datos del notebook")?;
-        
+
         // Extraer fuentes: extract_sources
         let source_ids = extract_sources(notebook_data)
             .ok_or_else(|| "No se pudieron extraer las fuentes".to_string())?;
-        
+
         Ok(source_ids)
     }
 
@@ -953,17 +1126,25 @@ impl NotebookLmClient {
     ///
     /// Returns the raw source entry Value which contains status code at [3][1].
     /// Used by SourcePoller to determine source readiness.
-    pub async fn get_source_entry(&self, notebook_id: &str, source_id: &str) -> Result<Option<Value>, String> {
-        let payload = format!("[\"{}\", null, [2], null, 0]", notebook_id.replace('"', "\\\""));
+    pub async fn get_source_entry(
+        &self,
+        notebook_id: &str,
+        source_id: &str,
+    ) -> Result<Option<Value>, String> {
+        let payload = format!(
+            "[\"{}\", null, [2], null, 0]",
+            notebook_id.replace('"', "\\\"")
+        );
         let response = self.batchexecute("rLM1Ne", &payload).await?;
 
-        let inner = extract_by_rpc_id(&response, "rLM1Ne")
-            .ok_or("No se encontró respuesta rLM1Ne")?;
+        let inner =
+            extract_by_rpc_id(&response, "rLM1Ne").ok_or("No se encontró respuesta rLM1Ne")?;
 
-        let notebook_list = extract_notebook_list(&inner)
-            .ok_or("No se pudo parsear lista de notebooks")?;
+        let notebook_list =
+            extract_notebook_list(&inner).ok_or("No se pudo parsear lista de notebooks")?;
 
-        let notebook_data = notebook_list.first()
+        let notebook_data = notebook_list
+            .first()
             .and_then(|v| v.as_array())
             .ok_or("No se encontraron datos del notebook")?;
 
@@ -974,37 +1155,45 @@ impl NotebookLmClient {
     pub async fn ask_question(&self, notebook_id: &str, question: &str) -> Result<String, String> {
         // Step 1: Get source IDs for the notebook
         let source_ids = self.get_notebook_sources(notebook_id).await?;
-        
+
         if source_ids.is_empty() {
-            return Err("No hay fuentes disponibles en esta libreta. Añade fuentes antes de preguntar.".to_string());
+            return Err(
+                "No hay fuentes disponibles en esta libreta. Añade fuentes antes de preguntar."
+                    .to_string(),
+            );
         }
-        
+
         // Step 2: Build source array for the query
         // Format: [[["source_id_1"]], [["source_id_2"]], ...]
-        let sources_array: Vec<String> = source_ids.iter()
+        let sources_array: Vec<String> = source_ids
+            .iter()
             .map(|id| format!("[[\"{}\"]]", id))
             .collect();
         let sources_json = format!("[{}]", sources_array.join(","));
-        
+
         // Step 3: Get or create conversation ID from cache
-        let conv_id = self.conversation_cache.get_or_create(notebook_id, &Uuid::new_v4().to_string()).await;
-        
+        let conv_id = self
+            .conversation_cache
+            .get_or_create(notebook_id, &Uuid::new_v4().to_string())
+            .await;
+
         // Step 4: Get conversation history for context
         let history = self.conversation_cache.get_history(notebook_id).await;
-        
+
         // Step 5: Build the params array (9 elements per notebooklm-py)
         // [sources_array, question, history, config, conv_id, null, null, notebook_id, 1]
-        
+
         // Build history as JSON array of [question, answer] pairs
         let history_json = if let Some(msgs) = &history {
-            let pairs: Vec<Value> = msgs.iter().map(|m| {
-                serde_json::json!([m.question, m.answer])
-            }).collect();
+            let pairs: Vec<Value> = msgs
+                .iter()
+                .map(|m| serde_json::json!([m.question, m.answer]))
+                .collect();
             Value::Array(pairs)
         } else {
             Value::Null
         };
-        
+
         let params_json = serde_json::json!([
             serde_json::from_str::<Value>(&sources_json).unwrap_or(Value::Array(vec![])),
             question,
@@ -1015,33 +1204,36 @@ impl NotebookLmClient {
             Value::Null,
             notebook_id,
             1
-        ]).to_string();
-        
+        ])
+        .to_string();
+
         let f_req = serde_json::json!([null, params_json]).to_string();
-        
+
         // Step 6: POST to the streaming endpoint
         let url = "https://notebooklm.google.com/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed";
-        
-        let form_data = [
-            ("f.req", f_req),
-            ("at", self.csrf.read().await.clone())
-        ];
-        
+
+        let form_data = [("f.req", f_req), ("at", self.csrf.read().await.clone())];
+
         self.limiter.until_ready().await;
         Self::apply_jitter().await;
-        
-        let res = self.http.post(url)
+
+        let res = self
+            .http
+            .post(url)
             .form(&form_data)
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
-        
+
         if !res.status().is_success() {
             return Err(format!("Error HTTP {}", res.status()));
         }
-        
-        let text = res.text().await.map_err(|e| format!("No body text: {}", e))?;
-        
+
+        let text = res
+            .text()
+            .await
+            .map_err(|e| format!("No body text: {}", e))?;
+
         // Step 7: Parse the streaming response
         // Format: )]}'\n<size>\n<json>\n<size>\n<json>...
         let cleaned = if let Some(stripped) = text.strip_prefix(")]}'") {
@@ -1049,16 +1241,18 @@ impl NotebookLmClient {
         } else {
             text
         };
-        
+
         // Extract answer from chunks
         let answer = Self::parse_streaming_response(&cleaned)?;
-        
+
         // Step 8: Cache the conversation for future questions
-        self.conversation_cache.add_message(notebook_id, question.to_string(), answer.clone()).await;
-        
+        self.conversation_cache
+            .add_message(notebook_id, question.to_string(), answer.clone())
+            .await;
+
         Ok(answer)
     }
-    
+
     /// Parse the streaming response to extract the answer text
     fn parse_streaming_response(response_text: &str) -> Result<String, String> {
         // Clean anti-XSSI prefix
@@ -1067,53 +1261,57 @@ impl NotebookLmClient {
         } else {
             response_text.to_string()
         };
-        
+
         // Split into lines and look for JSON chunks
         let mut answers: Vec<String> = Vec::new();
-        
+
         for line in cleaned.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
             }
-            
+
             // Skip size markers
             if line.chars().all(|c| c.is_ascii_digit()) {
                 continue;
             }
-            
+
             // Try to parse as JSON
             if let Ok(data) = serde_json::from_str::<Value>(line) {
                 // Look for answer in the structure
                 if let Some(ans) = Self::extract_answer_from_chunk(&data)
-                    && !ans.is_empty() {
-                        answers.push(ans);
-                    }
+                    && !ans.is_empty()
+                {
+                    answers.push(ans);
+                }
             }
         }
-        
+
         // Return the longest answer found
         let best = answers.iter().max_by_key(|a| a.len()).cloned();
-        
+
         match best {
             Some(answer) => Ok(answer),
             None => {
                 // Try a simpler approach - look for text between quotes at the start
                 if cleaned.len() > 10 {
-                    Ok(format!("(Respuesta recibida, parsing mejorable):\n{}", &cleaned[..cleaned.len().min(3000)]))
+                    Ok(format!(
+                        "(Respuesta recibida, parsing mejorable):\n{}",
+                        &cleaned[..cleaned.len().min(3000)]
+                    ))
                 } else {
                     Err("No se pudo extraer respuesta".to_string())
                 }
             }
         }
     }
-    
+
     /// Extract answer text from a response chunk
     fn extract_answer_from_chunk(data: &Value) -> Option<String> {
         // Response structure from notebooklm-py:
         // [["wrb.fr", null, "<inner_json>", ...]]
         // inner_json: [["answer_text", null, [citations], ...], ...]
-        
+
         if let Some(arr) = data.as_array() {
             for item in arr {
                 if let Some(item_arr) = item.as_array() {
@@ -1121,20 +1319,21 @@ impl NotebookLmClient {
                     if item_arr.first()?.as_str()? != "wrb.fr" {
                         continue;
                     }
-                    
+
                     // Get inner JSON string
                     let inner_json_str = item_arr.get(2)?.as_str()?;
                     let inner_data: Value = serde_json::from_str(inner_json_str).ok()?;
-                    
+
                     // inner_data is an array: [[answer_text, null, citations, ...], ...]
                     if let Some(inner_arr) = inner_data.as_array() {
                         for inner_item in inner_arr {
                             if let Some(ia) = inner_item.as_array() {
                                 // Answer text is at index 0
                                 if let Some(text) = ia.first().and_then(|v| v.as_str())
-                                    && !text.is_empty() {
-                                        return Some(text.to_string());
-                                    }
+                                    && !text.is_empty()
+                                {
+                                    return Some(text.to_string());
+                                }
                             }
                         }
                     }
@@ -1180,7 +1379,11 @@ impl NotebookLmClient {
             artifacts.retain(|a| a.kind == kind);
         }
 
-        info!("Listed {} artifacts for notebook {}", artifacts.len(), notebook_id);
+        info!(
+            "Listed {} artifacts for notebook {}",
+            artifacts.len(),
+            notebook_id
+        );
         Ok(artifacts)
     }
 
@@ -1201,7 +1404,9 @@ impl NotebookLmClient {
         let payload = serde_json::to_string(&params)
             .map_err(|e| format!("Failed to serialize artifact params: {}", e))?;
 
-        let response = self.batchexecute(rpc_ids::CREATE_ARTIFACT, &payload).await?;
+        let response = self
+            .batchexecute(rpc_ids::CREATE_ARTIFACT, &payload)
+            .await?;
 
         // Check for rate limiting — Google returns rpc_code "USER_DISPLAYABLE_ERROR"
         if let Some(rate_limited) = Self::check_rate_limit(&response) {
@@ -1269,8 +1474,7 @@ impl NotebookLmClient {
 
         // Parse the mind map JSON — could be a string or already a Value
         let mind_map_data: serde_json::Value = if let Some(s) = mind_map_json.as_str() {
-            serde_json::from_str(s)
-                .map_err(|e| format!("Failed to parse mind map JSON: {}", e))?
+            serde_json::from_str(s).map_err(|e| format!("Failed to parse mind map JSON: {}", e))?
         } else {
             mind_map_json.clone()
         };
@@ -1287,13 +1491,7 @@ impl NotebookLmClient {
 
         // Step 2: Persist via CREATE_NOTE (CYK0Xb)
         // CREATE_NOTE params: [notebook_id, "", [1], None, title]
-        let create_note_params = serde_json::json!([
-            notebook_id,
-            "",
-            [1],
-            null,
-            title,
-        ]);
+        let create_note_params = serde_json::json!([notebook_id, "", [1], null, title,]);
 
         let create_payload = serde_json::to_string(&create_note_params)
             .map_err(|e| format!("Failed to serialize CREATE_NOTE params: {}", e))?;
@@ -1312,11 +1510,8 @@ impl NotebookLmClient {
         // Step 2b: Google ignores title in CREATE_NOTE, so update with content
         // UPDATE_NOTE params: [notebook_id, note_id, [[[content, title, [], 0]]]]
         if let Some(ref nid) = note_id {
-            let update_params = serde_json::json!([
-                notebook_id,
-                nid,
-                [[[mind_map_str, title, [], 0]]],
-            ]);
+            let update_params =
+                serde_json::json!([notebook_id, nid, [[[mind_map_str, title, [], 0]]],]);
 
             let update_payload = serde_json::to_string(&update_params)
                 .map_err(|e| format!("Failed to serialize UPDATE_NOTE params: {}", e))?;
@@ -1327,10 +1522,7 @@ impl NotebookLmClient {
             }
         }
 
-        info!(
-            "Mind map generated: note_id={:?}, title={}",
-            note_id, title
-        );
+        info!("Mind map generated: note_id={:?}, title={}", note_id, title);
 
         Ok(MindMapResult::new(
             note_id.unwrap_or_default(),
@@ -1353,7 +1545,8 @@ impl NotebookLmClient {
         // DELETE params: [[2], artifact_id]
         let payload = format!("[[2],\"{}\"]", artifact_id);
 
-        self.batchexecute(rpc_ids::DELETE_ARTIFACT, &payload).await?;
+        self.batchexecute(rpc_ids::DELETE_ARTIFACT, &payload)
+            .await?;
 
         info!("Deleted artifact {}", artifact_id);
         Ok(())
@@ -1406,10 +1599,7 @@ impl NotebookLmClient {
         // 3. Create parent directories
         if let Some(parent) = out.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                NotebookLmError::DownloadFailed(format!(
-                    "Failed to create output directory: {}",
-                    e
-                ))
+                NotebookLmError::DownloadFailed(format!("Failed to create output directory: {}", e))
             })?;
         }
 
@@ -1456,17 +1646,9 @@ impl NotebookLmClient {
         url: &str,
         tmp_path: &str,
     ) -> Result<u64, NotebookLmError> {
-        let response = self
-            .upload_http
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| {
-                NotebookLmError::DownloadFailed(format!(
-                    "Download request failed: {}",
-                    e
-                ))
-            })?;
+        let response = self.upload_http.get(url).send().await.map_err(|e| {
+            NotebookLmError::DownloadFailed(format!("Download request failed: {}", e))
+        })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -1508,27 +1690,18 @@ impl NotebookLmClient {
         use futures_util::StreamExt;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| {
-                NotebookLmError::DownloadFailed(format!(
-                    "Download stream error: {}",
-                    e
-                ))
+                NotebookLmError::DownloadFailed(format!("Download stream error: {}", e))
             })?;
 
             file.write_all(&chunk).await.map_err(|e| {
-                NotebookLmError::DownloadFailed(format!(
-                    "Failed to write to temp file: {}",
-                    e
-                ))
+                NotebookLmError::DownloadFailed(format!("Failed to write to temp file: {}", e))
             })?;
 
             total_bytes += chunk.len() as u64;
         }
 
         file.flush().await.map_err(|e| {
-            NotebookLmError::DownloadFailed(format!(
-                "Failed to flush temp file: {}",
-                e
-            ))
+            NotebookLmError::DownloadFailed(format!("Failed to flush temp file: {}", e))
         })?;
 
         // Check for empty download
@@ -1563,10 +1736,9 @@ impl NotebookLmClient {
         format: Option<&str>,
     ) -> Result<String, NotebookLmError> {
         // 1. Find the artifact
-        let artifacts = self
-            .list_artifacts(notebook_id, None)
-            .await
-            .map_err(|e| NotebookLmError::DownloadFailed(format!("Failed to list artifacts: {}", e)))?;
+        let artifacts = self.list_artifacts(notebook_id, None).await.map_err(|e| {
+            NotebookLmError::DownloadFailed(format!("Failed to list artifacts: {}", e))
+        })?;
 
         let artifact = artifacts
             .into_iter()
@@ -1589,9 +1761,7 @@ impl NotebookLmClient {
         // 3. Create parent directories
         if let Some(parent) = std::path::Path::new(output_path).parent() {
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                NotebookLmError::DownloadFailed(format!(
-                    "Failed to create output directory: {}", e
-                ))
+                NotebookLmError::DownloadFailed(format!("Failed to create output directory: {}", e))
             })?;
         }
 
@@ -1603,7 +1773,8 @@ impl NotebookLmClient {
         // 4. Dispatch by type
         match artifact.kind {
             ArtifactType::Audio | ArtifactType::Video | ArtifactType::Infographic => {
-                self._download_streaming_media(&artifact.raw_data, output_path).await
+                self._download_streaming_media(&artifact.raw_data, output_path)
+                    .await
             }
             ArtifactType::SlideDeck => {
                 let fmt = format.unwrap_or("pdf");
@@ -1615,24 +1786,22 @@ impl NotebookLmClient {
                 })?;
                 self.streaming_download(&url, output_path).await
             }
-            ArtifactType::Report => {
-                self._download_report(&artifact.raw_data, output_path).await
-            }
+            ArtifactType::Report => self._download_report(&artifact.raw_data, output_path).await,
             ArtifactType::DataTable => {
-                self._download_data_table(&artifact.raw_data, output_path).await
+                self._download_data_table(&artifact.raw_data, output_path)
+                    .await
             }
             ArtifactType::Quiz | ArtifactType::Flashcards => {
                 self._download_interactive(&artifact, output_path).await
             }
             ArtifactType::MindMap => {
-                self._download_mind_map(notebook_id, artifact_id, output_path).await
+                self._download_mind_map(notebook_id, artifact_id, output_path)
+                    .await
             }
-            ArtifactType::Unknown => {
-                Err(NotebookLmError::DownloadFailed(format!(
-                    "Cannot download unknown artifact type: {}",
-                    artifact_id
-                )))
-            }
+            ArtifactType::Unknown => Err(NotebookLmError::DownloadFailed(format!(
+                "Cannot download unknown artifact type: {}",
+                artifact_id
+            ))),
         }
     }
 
@@ -1649,7 +1818,7 @@ impl NotebookLmClient {
             .or_else(|| extract_infographic_url(raw_data))
             .ok_or_else(|| {
                 NotebookLmError::DownloadFailed(
-                    "Could not extract download URL from artifact data".to_string()
+                    "Could not extract download URL from artifact data".to_string(),
                 )
             })?;
 
@@ -1664,7 +1833,7 @@ impl NotebookLmClient {
     ) -> Result<String, NotebookLmError> {
         let content = extract_report_content(raw_data).ok_or_else(|| {
             NotebookLmError::DownloadFailed(
-                "Could not extract report markdown from artifact data".to_string()
+                "Could not extract report markdown from artifact data".to_string(),
             )
         })?;
 
@@ -1689,7 +1858,7 @@ impl NotebookLmClient {
     ) -> Result<String, NotebookLmError> {
         let (headers, rows) = parse_data_table(raw_data).ok_or_else(|| {
             NotebookLmError::DownloadFailed(
-                "Could not parse data table from artifact data".to_string()
+                "Could not parse data table from artifact data".to_string(),
             )
         })?;
 
@@ -1741,16 +1910,18 @@ impl NotebookLmClient {
             .await
             .map_err(|e| {
                 NotebookLmError::DownloadFailed(format!(
-                    "RPC call to get interactive content failed: {}", e
+                    "RPC call to get interactive content failed: {}",
+                    e
                 ))
             })?;
 
         // Extract HTML from response: result[0][9][0]
-        let inner = extract_by_rpc_id(&response, rpc_ids::GET_INTERACTIVE_HTML).ok_or_else(|| {
-            NotebookLmError::DownloadFailed(
-                "No response from GET_INTERACTIVE_HTML RPC".to_string()
-            )
-        })?;
+        let inner =
+            extract_by_rpc_id(&response, rpc_ids::GET_INTERACTIVE_HTML).ok_or_else(|| {
+                NotebookLmError::DownloadFailed(
+                    "No response from GET_INTERACTIVE_HTML RPC".to_string(),
+                )
+            })?;
 
         let html_content = inner
             .as_array()
@@ -1762,14 +1933,14 @@ impl NotebookLmClient {
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
                 NotebookLmError::DownloadFailed(
-                    "Could not extract HTML from interactive response".to_string()
+                    "Could not extract HTML from interactive response".to_string(),
                 )
             })?;
 
         // Parse data-app-data from HTML
         let app_data = extract_app_data(html_content).ok_or_else(|| {
             NotebookLmError::DownloadFailed(
-                "No data-app-data attribute found in interactive HTML".to_string()
+                "No data-app-data attribute found in interactive HTML".to_string(),
             )
         })?;
 
@@ -1836,16 +2007,15 @@ impl NotebookLmClient {
             .batchexecute(rpc_ids::GET_NOTES_AND_MIND_MAPS, &payload)
             .await
             .map_err(|e| {
-                NotebookLmError::DownloadFailed(format!(
-                    "RPC call to get notes failed: {}", e
-                ))
+                NotebookLmError::DownloadFailed(format!("RPC call to get notes failed: {}", e))
             })?;
 
-        let inner = extract_by_rpc_id(&response, rpc_ids::GET_NOTES_AND_MIND_MAPS).ok_or_else(|| {
-            NotebookLmError::DownloadFailed(
-                "No response from GET_NOTES_AND_MIND_MAPS RPC".to_string()
-            )
-        })?;
+        let inner =
+            extract_by_rpc_id(&response, rpc_ids::GET_NOTES_AND_MIND_MAPS).ok_or_else(|| {
+                NotebookLmError::DownloadFailed(
+                    "No response from GET_NOTES_AND_MIND_MAPS RPC".to_string(),
+                )
+            })?;
 
         let notes = inner
             .as_array()
@@ -1872,9 +2042,7 @@ impl NotebookLmClient {
             })?;
 
         let json_value = extract_mind_map_json(mind_map_item).ok_or_else(|| {
-            NotebookLmError::DownloadFailed(
-                "Could not parse mind map JSON from note".to_string()
-            )
+            NotebookLmError::DownloadFailed("Could not parse mind map JSON from note".to_string())
         })?;
 
         let content = serde_json::to_string_pretty(&json_value).unwrap_or_default();
@@ -1899,13 +2067,25 @@ impl NotebookLmClient {
     /// Get the last conversation ID from Google servers for a notebook.
     /// RPC: `hPTbtc`, payload: `[[], null, notebook_id, 1]`
     /// Response: `[[[conv_id]]]` — triple-nested string
-    pub async fn get_last_conversation_id(&self, notebook_id: &str) -> Result<Option<String>, String> {
+    pub async fn get_last_conversation_id(
+        &self,
+        notebook_id: &str,
+    ) -> Result<Option<String>, String> {
         let inner_json = format!("[[],null,\"{}\",1]", notebook_id);
         let response = self.batchexecute("hPTbtc", &inner_json).await?;
-        let inner = extract_by_rpc_id(&response, "hPTbtc").ok_or("No se encontró respuesta hPTbtc")?;
+        let inner =
+            extract_by_rpc_id(&response, "hPTbtc").ok_or("No se encontró respuesta hPTbtc")?;
         let arr = inner.as_array().ok_or("hPTbtc no es array")?;
-        let first = arr.first().ok_or("hPTbtc array vacío")?.as_array().ok_or("hPTbtc no es array anidado")?;
-        let second = first.first().ok_or("hPTbtc doble anidado vacío")?.as_array().ok_or("hPTbtc triple anidado no es array")?;
+        let first = arr
+            .first()
+            .ok_or("hPTbtc array vacío")?
+            .as_array()
+            .ok_or("hPTbtc no es array anidado")?;
+        let second = first
+            .first()
+            .ok_or("hPTbtc doble anidado vacío")?
+            .as_array()
+            .ok_or("hPTbtc triple anidado no es array")?;
         match get_string_at(second, 0) {
             Some(id) if !id.is_empty() => Ok(Some(id)),
             _ => Ok(None),
@@ -1915,10 +2095,16 @@ impl NotebookLmClient {
     /// Get conversation turns from Google servers.
     /// RPC: `khqZz`, payload: `[[], null, null, conversation_id, limit]`
     /// Returns turns in chronological order (oldest first). Google returns newest-first.
-    pub async fn get_conversation_turns(&self, _notebook_id: &str, conversation_id: &str, limit: u32) -> Result<Vec<crate::rpc::notes::ChatTurn>, String> {
+    pub async fn get_conversation_turns(
+        &self,
+        _notebook_id: &str,
+        conversation_id: &str,
+        limit: u32,
+    ) -> Result<Vec<crate::rpc::notes::ChatTurn>, String> {
         let inner_json = format!("[[],null,null,\"{}\",{}]", conversation_id, limit);
         let response = self.batchexecute("khqZz", &inner_json).await?;
-        let inner = extract_by_rpc_id(&response, "khqZz").ok_or("No se encontró respuesta khqZz")?;
+        let inner =
+            extract_by_rpc_id(&response, "khqZz").ok_or("No se encontró respuesta khqZz")?;
         let arr = inner.as_array().ok_or("khqZz no es array")?;
         let mut turns = Vec::new();
         for turn in arr {
@@ -1927,9 +2113,13 @@ impl NotebookLmClient {
             {
                 let role_code = turn_arr.get(2).and_then(|v| v.as_i64()).unwrap_or(0);
                 let (role, text) = if role_code == 1 {
-                    ("user".to_string(), get_string_at_or_default(turn_arr, 3, ""))
+                    (
+                        "user".to_string(),
+                        get_string_at_or_default(turn_arr, 3, ""),
+                    )
                 } else if role_code == 2 {
-                    let ai_text = turn_arr.get(4)
+                    let ai_text = turn_arr
+                        .get(4)
                         .and_then(|v| v.as_array())
                         .and_then(|a| a.first())
                         .and_then(|v| v.as_array())
@@ -1954,11 +2144,16 @@ impl NotebookLmClient {
     /// Start a deep research task on Google's servers.
     /// RPC: `QA9ei`, payload: `[null, [1], [query, 1], 5, notebook_id]`
     /// Returns task_id for polling.
-    pub async fn start_deep_research(&self, notebook_id: &str, query: &str) -> Result<String, String> {
+    pub async fn start_deep_research(
+        &self,
+        notebook_id: &str,
+        query: &str,
+    ) -> Result<String, String> {
         let q = query.replace('\"', "\\\"");
         let inner_json = format!("[null,[1],[\"{}\",1],5,\"{}\"]", q, notebook_id);
         let response = self.batchexecute("QA9ei", &inner_json).await?;
-        let inner = extract_by_rpc_id(&response, "QA9ei").ok_or("No se encontró respuesta QA9ei")?;
+        let inner =
+            extract_by_rpc_id(&response, "QA9ei").ok_or("No se encontró respuesta QA9ei")?;
         if let Some(id) = get_string_at(inner.as_array().ok_or("QA9ei no es array")?, 0) {
             return Ok(id);
         }
@@ -1974,10 +2169,15 @@ impl NotebookLmClient {
     ///
     /// Returns full parsing including sources and report markdown.
     /// If `task_id` is empty, returns the latest task.
-    pub async fn poll_research_status(&self, notebook_id: &str, task_id: &str) -> Result<crate::rpc::notes::ResearchStatus, String> {
+    pub async fn poll_research_status(
+        &self,
+        notebook_id: &str,
+        task_id: &str,
+    ) -> Result<crate::rpc::notes::ResearchStatus, String> {
         let inner_json = format!("[null,null,\"{}\"]", notebook_id);
         let response = self.batchexecute("e3bVqc", &inner_json).await?;
-        let inner = crate::parser::extract_by_rpc_id(&response, "e3bVqc").ok_or("No se encontró respuesta e3bVqc")?;
+        let inner = crate::parser::extract_by_rpc_id(&response, "e3bVqc")
+            .ok_or("No se encontró respuesta e3bVqc")?;
 
         let tasks = crate::research_poller::parse_all_research_tasks(&inner);
 
@@ -2014,8 +2214,14 @@ impl NotebookLmClient {
 
     /// Import discovered sources from a completed deep research task into a notebook.
     /// RPC: `LBwxtb`
-    pub async fn import_research_sources(&self, notebook_id: &str, _task_id: &str, sources: serde_json::Value) -> Result<(), String> {
-        let inner_json = serde_json::to_string(&sources).map_err(|e| format!("Failed to serialize research sources: {}", e))?;
+    pub async fn import_research_sources(
+        &self,
+        notebook_id: &str,
+        _task_id: &str,
+        sources: serde_json::Value,
+    ) -> Result<(), String> {
+        let inner_json = serde_json::to_string(&sources)
+            .map_err(|e| format!("Failed to serialize research sources: {}", e))?;
         self.batchexecute("LBwxtb", &inner_json).await?;
         info!("Imported research sources into notebook {}", notebook_id);
         Ok(())
@@ -2039,7 +2245,7 @@ impl NotebookLmClient {
             let rpc_code = item_arr.get(1)?.as_str()?;
             if rpc_code == "USER_DISPLAYABLE_ERROR" {
                 return Some(GenerationStatus::rate_limited(
-                    "Rate limited by API (USER_DISPLAYABLE_ERROR)"
+                    "Rate limited by API (USER_DISPLAYABLE_ERROR)",
                 ));
             }
         }
@@ -2068,8 +2274,8 @@ impl NotebookLmClient {
             && let Some(opened_at) = *guard
             && opened_at.elapsed() < Self::CIRCUIT_BREAKER_COOLDOWN
         {
-            let remaining = Self::CIRCUIT_BREAKER_COOLDOWN.as_secs()
-                - opened_at.elapsed().as_secs();
+            let remaining =
+                Self::CIRCUIT_BREAKER_COOLDOWN.as_secs() - opened_at.elapsed().as_secs();
             return Err(format!(
                 "Circuit breaker OPEN after {} consecutive auth errors. \
                  Run `notebooklm-mcp auth-browser` to re-autenticar. \
@@ -2137,7 +2343,10 @@ impl NotebookLmClient {
 
     /// Extract Retry-After milliseconds from error string.
     fn extract_retry_after_ms(error: &str) -> Option<u64> {
-        error.strip_prefix("RATE_LIMITED_RETRY_AFTER:")?.parse().ok()
+        error
+            .strip_prefix("RATE_LIMITED_RETRY_AFTER:")?
+            .parse()
+            .ok()
     }
 }
 
@@ -2151,7 +2360,9 @@ mod tests {
 
     #[test]
     fn test_youtube_watch_url() {
-        assert!(is_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assert!(is_youtube_url(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
     }
 
     #[test]
@@ -2171,7 +2382,9 @@ mod tests {
 
     #[test]
     fn test_youtube_music_url() {
-        assert!(is_youtube_url("https://music.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assert!(is_youtube_url(
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
     }
 
     #[test]
@@ -2186,7 +2399,9 @@ mod tests {
 
     #[test]
     fn test_youtube_with_query_params() {
-        assert!(is_youtube_url("https://www.youtube.com/watch?v=abc&t=120&list=xyz"));
+        assert!(is_youtube_url(
+            "https://www.youtube.com/watch?v=abc&t=120&list=xyz"
+        ));
     }
 
     #[test]
@@ -2246,8 +2461,13 @@ mod tests {
 
     #[test]
     fn test_validate_google_domain_with_query_and_fragment() {
-        assert!(validate_google_domain("https://cdn.googleusercontent.com/audio.mp4?token=abc&exp=123").is_ok());
-        assert!(validate_google_domain("https://storage.googleapis.com/bucket/file#section").is_ok());
+        assert!(
+            validate_google_domain("https://cdn.googleusercontent.com/audio.mp4?token=abc&exp=123")
+                .is_ok()
+        );
+        assert!(
+            validate_google_domain("https://storage.googleapis.com/bucket/file#section").is_ok()
+        );
     }
 
     #[test]
@@ -2310,7 +2530,11 @@ mod tests {
         let err = validate_google_domain(&long_url).unwrap_err();
         let msg = err.to_string();
         // Error message should be truncated, not the full 200+ char URL
-        assert!(msg.len() < 200, "Error message should truncate long URLs, got {} chars", msg.len());
+        assert!(
+            msg.len() < 200,
+            "Error message should truncate long URLs, got {} chars",
+            msg.len()
+        );
     }
 
     // =========================================================================
@@ -2319,7 +2543,11 @@ mod tests {
 
     /// Helper: build a NotebookLmClient with dummy cookies (for download tests only)
     fn make_test_client() -> NotebookLmClient {
-        NotebookLmClient::new("test_cookie=1".to_string(), "test_csrf".to_string(), String::new())
+        NotebookLmClient::new(
+            "test_cookie=1".to_string(),
+            "test_csrf".to_string(),
+            String::new(),
+        )
     }
 
     #[test]
@@ -2327,7 +2555,9 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let client = make_test_client();
         let result = rt.block_on(async {
-            client.streaming_download("https://evil.com/malware.exe", "/tmp/test.exe").await
+            client
+                .streaming_download("https://evil.com/malware.exe", "/tmp/test.exe")
+                .await
         });
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Untrusted"));
@@ -2338,7 +2568,9 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let client = make_test_client();
         let result = rt.block_on(async {
-            client.streaming_download("http://google.com/file.mp4", "/tmp/test.mp4").await
+            client
+                .streaming_download("http://google.com/file.mp4", "/tmp/test.mp4")
+                .await
         });
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("HTTPS"));
@@ -2369,9 +2601,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_streaming_download_with_mock_server() {
-        use tokio::net::TcpListener;
         use tokio::io::AsyncReadExt;
         use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
 
         // Start a local TCP server that responds with fake media data
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2555,12 +2787,16 @@ mod tests {
         ]);
 
         let arr = params.as_array().unwrap();
-        assert_eq!(arr.len(), 8, "GENERATE_MIND_MAP params must have 8 elements");
+        assert_eq!(
+            arr.len(),
+            8,
+            "GENERATE_MIND_MAP params must have 8 elements"
+        );
 
         // First element: source IDs nested
         let sources = arr[0].as_array().unwrap();
         assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0], serde_json::json!([[[  "src-1"]]]));
+        assert_eq!(sources[0], serde_json::json!([[["src-1"]]]));
 
         // Element at index 5: mind map config
         let config = arr[5].as_array().unwrap();
@@ -2596,7 +2832,10 @@ mod tests {
     fn test_mind_map_title_extraction() {
         // Extract title from mind map data
         let data = serde_json::json!({"name": "My Mind Map", "children": []});
-        let title = data.get("name").and_then(|v| v.as_str()).unwrap_or("Mind Map");
+        let title = data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Mind Map");
         assert_eq!(title, "My Mind Map");
 
         // Missing name → default
@@ -2643,13 +2882,13 @@ mod tests {
     #[test]
     fn test_exponential_backoff_grows_exponentially() {
         // Verify the formula: 2^attempt (not 1^attempt which was the bug)
-        assert_eq!(2u64.pow(1u32.min(6)), 2);   // attempt 1 → 2s base
-        assert_eq!(2u64.pow(2u32.min(6)), 4);   // attempt 2 → 4s base
-        assert_eq!(2u64.pow(3u32.min(6)), 8);   // attempt 3 → 8s base
-        assert_eq!(2u64.pow(4u32.min(6)), 16);  // attempt 4 → 16s base
-        assert_eq!(2u64.pow(5u32.min(6)), 32);  // attempt 5 → 32s base
-        assert_eq!(2u64.pow(6u32.min(6)), 64);  // attempt 6 → 64s base (cap)
-        assert_eq!(2u64.pow(7u32.min(6)), 64);  // attempt 7 → still 64s (capped)
+        assert_eq!(2u64.pow(1u32.min(6)), 2); // attempt 1 → 2s base
+        assert_eq!(2u64.pow(2u32.min(6)), 4); // attempt 2 → 4s base
+        assert_eq!(2u64.pow(3u32.min(6)), 8); // attempt 3 → 8s base
+        assert_eq!(2u64.pow(4u32.min(6)), 16); // attempt 4 → 16s base
+        assert_eq!(2u64.pow(5u32.min(6)), 32); // attempt 5 → 32s base
+        assert_eq!(2u64.pow(6u32.min(6)), 64); // attempt 6 → 64s base (cap)
+        assert_eq!(2u64.pow(7u32.min(6)), 64); // attempt 7 → still 64s (capped)
         assert_eq!(2u64.pow(100u32.min(6)), 64); // attempt 100 → still 64s (capped)
     }
 
@@ -2668,7 +2907,10 @@ mod tests {
     #[test]
     fn test_parse_retry_after_seconds() {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("5"));
+        headers.insert(
+            "retry-after",
+            reqwest::header::HeaderValue::from_static("5"),
+        );
         assert_eq!(NotebookLmClient::parse_retry_after(&headers), Some(5000));
     }
 
@@ -2681,34 +2923,55 @@ mod tests {
     #[test]
     fn test_parse_retry_after_capped_at_120s() {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("999"));
+        headers.insert(
+            "retry-after",
+            reqwest::header::HeaderValue::from_static("999"),
+        );
         assert_eq!(NotebookLmClient::parse_retry_after(&headers), Some(120_000));
     }
 
     #[test]
     fn test_parse_retry_after_invalid() {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("not-a-number"));
+        headers.insert(
+            "retry-after",
+            reqwest::header::HeaderValue::from_static("not-a-number"),
+        );
         assert_eq!(NotebookLmClient::parse_retry_after(&headers), None);
     }
 
     #[test]
     fn test_parse_retry_after_zero() {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("retry-after", reqwest::header::HeaderValue::from_static("0"));
+        headers.insert(
+            "retry-after",
+            reqwest::header::HeaderValue::from_static("0"),
+        );
         assert_eq!(NotebookLmClient::parse_retry_after(&headers), Some(0));
     }
 
     #[test]
     fn test_extract_retry_after_ms_valid() {
-        assert_eq!(NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:5000"), Some(5000));
-        assert_eq!(NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:100"), Some(100));
+        assert_eq!(
+            NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:5000"),
+            Some(5000)
+        );
+        assert_eq!(
+            NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:100"),
+            Some(100)
+        );
     }
 
     #[test]
     fn test_extract_retry_after_ms_invalid() {
-        assert_eq!(NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:abc"), None);
-        assert_eq!(NotebookLmClient::extract_retry_after_ms("some other error"), None);
+        assert_eq!(
+            NotebookLmClient::extract_retry_after_ms("RATE_LIMITED_RETRY_AFTER:abc"),
+            None
+        );
+        assert_eq!(
+            NotebookLmClient::extract_retry_after_ms("some other error"),
+            None
+        );
         assert_eq!(NotebookLmClient::extract_retry_after_ms(""), None);
     }
 
@@ -2722,7 +2985,10 @@ mod tests {
         client.record_auth_failure();
         client.record_auth_failure();
         // 2 errors — below threshold of 3
-        assert!(client.check_circuit_breaker().is_ok(), "Circuit should be closed with 2 errors");
+        assert!(
+            client.check_circuit_breaker().is_ok(),
+            "Circuit should be closed with 2 errors"
+        );
     }
 
     #[tokio::test]
@@ -2735,8 +3001,16 @@ mod tests {
         let result = client.check_circuit_breaker();
         assert!(result.is_err(), "Circuit should be OPEN with 3 errors");
         let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("Circuit breaker OPEN"), "Error must mention circuit breaker: {}", err_msg);
-        assert!(err_msg.contains("auth-browser"), "Error must suggest auth-browser: {}", err_msg);
+        assert!(
+            err_msg.contains("Circuit breaker OPEN"),
+            "Error must mention circuit breaker: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("auth-browser"),
+            "Error must suggest auth-browser: {}",
+            err_msg
+        );
     }
 
     #[tokio::test]
@@ -2746,7 +3020,10 @@ mod tests {
         client.record_auth_failure();
         client.record_auth_success();
         // Success resets to 0
-        assert!(client.check_circuit_breaker().is_ok(), "Circuit should be closed after reset");
+        assert!(
+            client.check_circuit_breaker().is_ok(),
+            "Circuit should be closed after reset"
+        );
         use std::sync::atomic::Ordering;
         assert_eq!(client.auth_error_count.load(Ordering::Relaxed), 0);
     }
@@ -2769,8 +3046,14 @@ mod tests {
         client.record_auth_failure();
         client.record_auth_failure();
         let err = client.check_circuit_breaker().unwrap_err();
-        assert!(err.contains("Cooldown:"), "Error must show remaining cooldown time");
-        assert!(err.contains("3 consecutive auth errors"), "Error must show error count");
+        assert!(
+            err.contains("Cooldown:"),
+            "Error must show remaining cooldown time"
+        );
+        assert!(
+            err.contains("3 consecutive auth errors"),
+            "Error must show error count"
+        );
     }
 
     // =========================================================================
@@ -2792,26 +3075,36 @@ mod tests {
             return None;
         }
 
-        let (cookie, csrf, sid) = if let Some((c, cs, s)) = crate::auth_browser::load_credentials() {
+        let (cookie, csrf, sid) = if let Some((c, cs, s)) = crate::auth_browser::load_credentials()
+        {
             (c, cs, s)
         } else {
             // Try DPAPI session file directly
-            let session_path = dirs::home_dir()
-                .map(|d| d.join(".notebooklm-mcp").join("session.bin"))?;
+            let session_path =
+                dirs::home_dir().map(|d| d.join(".notebooklm-mcp").join("session.bin"))?;
             if !session_path.exists() {
                 return None;
             }
             let encrypted = std::fs::read(&session_path).ok()?;
-            let json = windows_dpapi::decrypt_data(
-                &encrypted,
-                windows_dpapi::Scope::User,
-                None,
-            ).ok()?;
+            let json =
+                windows_dpapi::decrypt_data(&encrypted, windows_dpapi::Scope::User, None).ok()?;
             let session: serde_json::Value = serde_json::from_slice(&json).ok()?;
             (
-                session.get("cookie").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                session.get("csrf").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                session.get("sid").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                session
+                    .get("cookie")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                session
+                    .get("csrf")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                session
+                    .get("sid")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             )
         };
 
@@ -2856,7 +3149,11 @@ mod tests {
 
         loop {
             if start.elapsed() >= Duration::from_secs(timeout_secs) {
-                return Err(format!("Timeout after {:?} waiting for artifact {}", start.elapsed(), task_id));
+                return Err(format!(
+                    "Timeout after {:?} waiting for artifact {}",
+                    start.elapsed(),
+                    task_id
+                ));
             }
 
             let artifacts = client.list_artifacts(notebook_id, None).await?;
@@ -2867,7 +3164,10 @@ mod tests {
                 if artifact.is_failed() {
                     return Err(format!("Artifact {} failed: {}", task_id, artifact.status));
                 }
-                info!("Artifact {} status: {} — waiting...", task_id, artifact.status);
+                info!(
+                    "Artifact {} status: {} — waiting...",
+                    task_id, artifact.status
+                );
             }
 
             tokio::time::sleep(interval).await;
@@ -2905,7 +3205,11 @@ mod tests {
         };
 
         let status = client.generate_artifact(&notebook_id, &config).await;
-        assert!(status.is_ok(), "generate_artifact failed: {:?}", status.err());
+        assert!(
+            status.is_ok(),
+            "generate_artifact failed: {:?}",
+            status.err()
+        );
         let status = status.unwrap();
         info!("Generation status: {:?}", status);
 
@@ -2916,9 +3220,16 @@ mod tests {
         assert!(!status.task_id.is_empty(), "No task_id returned");
 
         let artifact = wait_for_artifact(&client, &notebook_id, &status.task_id, 120).await;
-        assert!(artifact.is_ok(), "wait_for_artifact failed: {:?}", artifact.err());
+        assert!(
+            artifact.is_ok(),
+            "wait_for_artifact failed: {:?}",
+            artifact.err()
+        );
         let artifact = artifact.unwrap();
-        info!("Artifact completed: kind={:?}, status={}", artifact.kind, artifact.status);
+        info!(
+            "Artifact completed: kind={:?}, status={}",
+            artifact.kind, artifact.status
+        );
 
         let tmp = std::env::temp_dir().join("notebooklm_integration_audio.mp3");
         let _ = std::fs::remove_file(&tmp);
@@ -2965,7 +3276,11 @@ mod tests {
         };
 
         let status = client.generate_artifact(&notebook_id, &config).await;
-        assert!(status.is_ok(), "generate_artifact failed: {:?}", status.err());
+        assert!(
+            status.is_ok(),
+            "generate_artifact failed: {:?}",
+            status.err()
+        );
         let status = status.unwrap();
         info!("Quiz generation status: {:?}", status);
 
@@ -2975,7 +3290,11 @@ mod tests {
         }
 
         let artifact = wait_for_artifact(&client, &notebook_id, &status.task_id, 60).await;
-        assert!(artifact.is_ok(), "wait_for_artifact failed: {:?}", artifact.err());
+        assert!(
+            artifact.is_ok(),
+            "wait_for_artifact failed: {:?}",
+            artifact.err()
+        );
         let artifact = artifact.unwrap();
         assert!(artifact.is_completed(), "Quiz not completed");
 
@@ -2988,8 +3307,14 @@ mod tests {
         assert!(result.is_ok(), "download failed: {:?}", result.err());
 
         let content = std::fs::read_to_string(&tmp).unwrap_or_default();
-        assert!(content.contains("questions"), "Quiz JSON missing 'questions' field");
-        assert!(content.contains("\"title\""), "Quiz JSON missing 'title' field");
+        assert!(
+            content.contains("questions"),
+            "Quiz JSON missing 'questions' field"
+        );
+        assert!(
+            content.contains("\"title\""),
+            "Quiz JSON missing 'title' field"
+        );
         info!("Quiz downloaded: {} bytes", content.len());
 
         let _ = std::fs::remove_file(&tmp);
@@ -3018,7 +3343,11 @@ mod tests {
         };
 
         let result = client.generate_mind_map(&notebook_id, &[&source_id]).await;
-        assert!(result.is_ok(), "generate_mind_map failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "generate_mind_map failed: {:?}",
+            result.err()
+        );
         let mm = result.unwrap();
 
         info!("Mind map result: note_id={:?}", mm.note_id);
@@ -3083,7 +3412,9 @@ mod tests {
         if found_rate_limit {
             info!("9.4 PASSED — rate limiting detected correctly");
         } else {
-            info!("9.4 PASSED — rate limiting not triggered (OK, Google may not always rate-limit)");
+            info!(
+                "9.4 PASSED — rate limiting not triggered (OK, Google may not always rate-limit)"
+            );
         }
     }
 }

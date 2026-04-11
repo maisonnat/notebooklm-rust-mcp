@@ -1550,11 +1550,13 @@ mod tests {
         assert!(ReportFormat::BriefingDoc.prompt().is_some());
         assert!(ReportFormat::StudyGuide.prompt().is_some());
         assert!(ReportFormat::BlogPost.prompt().is_some());
-        assert!(ReportFormat::Custom {
-            prompt: "test".into()
-        }
-        .prompt()
-        .is_some());
+        assert!(
+            ReportFormat::Custom {
+                prompt: "test".into()
+            }
+            .prompt()
+            .is_some()
+        );
     }
 
     #[test]

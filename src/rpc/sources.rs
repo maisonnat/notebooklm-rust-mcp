@@ -50,7 +50,9 @@ impl UrlSourceInner {
 
     /// Serialize as JSON array (not object) for wire format.
     pub fn to_json_array(&self) -> serde_json::Value {
-        serde_json::json!([self.p0, self.p1, self.p2, self.p3, self.p4, self.p5, self.p6, self.p7])
+        serde_json::json!([
+            self.p0, self.p1, self.p2, self.p3, self.p4, self.p5, self.p6, self.p7
+        ])
     }
 }
 

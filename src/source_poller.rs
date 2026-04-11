@@ -7,8 +7,8 @@
 //! - Timeout necesario para no quedar atascado infinitamente
 
 use crate::errors::{NotebookLmError, NotebookResult};
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -102,38 +102,54 @@ impl SourcePoller {
     }
 
     /// Espera hasta que la fuente esté lista para consulta
-    pub async fn wait_for_source_ready(&self, notebook_id: &str, source_id: &str) -> NotebookResult<SourceState> {
-        info!("Iniciando polling para fuente {} en notebook {}", source_id, notebook_id);
-        
+    pub async fn wait_for_source_ready(
+        &self,
+        notebook_id: &str,
+        source_id: &str,
+    ) -> NotebookResult<SourceState> {
+        info!(
+            "Iniciando polling para fuente {} en notebook {}",
+            source_id, notebook_id
+        );
+
         let mut retries = 0;
-        
+
         loop {
             if retries >= self.config.max_retries {
-                warn!("Timeout: máximo de reintentos alcanzado para fuente {}", source_id);
-                return Err(NotebookLmError::SourceNotReady(
-                    format!("Timeout después de {} intentos", self.config.max_retries)
-                ));
+                warn!(
+                    "Timeout: máximo de reintentos alcanzado para fuente {}",
+                    source_id
+                );
+                return Err(NotebookLmError::SourceNotReady(format!(
+                    "Timeout después de {} intentos",
+                    self.config.max_retries
+                )));
             }
 
             match self.check_source_state(notebook_id, source_id).await {
-                Ok(state) => {
-                    match state {
-                        SourceState::Ready => {
-                            info!("Fuente {} lista para consulta", source_id);
-                            return Ok(state);
-                        }
-                        SourceState::Processing => {
-                            info!("Fuente {} aún procesando (intento {}/{})", 
-                                  source_id, retries + 1, self.config.max_retries);
-                        }
-                        SourceState::Error(msg) => {
-                            return Err(NotebookLmError::SourceNotReady(msg));
-                        }
-                        SourceState::Unknown => {
-                            warn!("Estado desconocido para fuente {}, continuando...", source_id);
-                        }
+                Ok(state) => match state {
+                    SourceState::Ready => {
+                        info!("Fuente {} lista para consulta", source_id);
+                        return Ok(state);
                     }
-                }
+                    SourceState::Processing => {
+                        info!(
+                            "Fuente {} aún procesando (intento {}/{})",
+                            source_id,
+                            retries + 1,
+                            self.config.max_retries
+                        );
+                    }
+                    SourceState::Error(msg) => {
+                        return Err(NotebookLmError::SourceNotReady(msg));
+                    }
+                    SourceState::Unknown => {
+                        warn!(
+                            "Estado desconocido para fuente {}, continuando...",
+                            source_id
+                        );
+                    }
+                },
                 Err(e) => {
                     warn!("Error al verificar fuente {}: {}", source_id, e);
                 }
@@ -145,10 +161,15 @@ impl SourcePoller {
     }
 
     /// Consulta el estado de una fuente específica
-    async fn check_source_state(&self, notebook_id: &str, source_id: &str) -> NotebookResult<SourceState> {
+    async fn check_source_state(
+        &self,
+        notebook_id: &str,
+        source_id: &str,
+    ) -> NotebookResult<SourceState> {
         let client = self.client.read().await;
 
-        let source_entry = client.get_source_entry(notebook_id, source_id)
+        let source_entry = client
+            .get_source_entry(notebook_id, source_id)
             .await
             .map_err(NotebookLmError::from_string)?;
 
@@ -167,7 +188,7 @@ pub async fn add_source_with_polling(
     content: &str,
 ) -> NotebookResult<String> {
     let poller = SourcePoller::new(client.clone());
-    
+
     // Primero añadir la fuente
     let source_id = {
         let c = client.read().await;
@@ -175,12 +196,17 @@ pub async fn add_source_with_polling(
             .await
             .map_err(NotebookLmError::from_string)?
     };
-    
-    info!("Fuente añadida con ID: {}, esperando que esté lista...", source_id);
-    
+
+    info!(
+        "Fuente añadida con ID: {}, esperando que esté lista...",
+        source_id
+    );
+
     // Luego esperar hasta que esté lista
-    poller.wait_for_source_ready(notebook_id, &source_id).await?;
-    
+    poller
+        .wait_for_source_ready(notebook_id, &source_id)
+        .await?;
+
     Ok(source_id)
 }
 
@@ -217,7 +243,8 @@ mod tests {
     #[test]
     fn test_source_state_error() {
         // Status code 3 at [3][1] with error message at [3][2]
-        let entry = serde_json::json!([[[["src-id"]]], "title", null, [null, 3, "Processing error"]]);
+        let entry =
+            serde_json::json!([[[["src-id"]]], "title", null, [null, 3, "Processing error"]]);
         let state = SourceState::from_response(&entry);
         assert!(matches!(state, SourceState::Error(msg) if msg.contains("Processing error")));
     }

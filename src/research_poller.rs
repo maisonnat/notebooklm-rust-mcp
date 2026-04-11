@@ -179,27 +179,26 @@ pub fn parse_all_research_tasks(value: &serde_json::Value) -> Vec<(String, Resea
                 .map(|s| s.to_string());
 
             // Sources + summary at data[3]: [[sources], summary_text]
-            let (sources, report) = if let Some(sources_summary) =
-                data.get(3).and_then(|v| v.as_array())
-            {
-                let sources_arr = sources_summary
-                    .first()
-                    .and_then(|v| v.as_array())
-                    .cloned()
-                    .unwrap_or_default();
+            let (sources, report) =
+                if let Some(sources_summary) = data.get(3).and_then(|v| v.as_array()) {
+                    let sources_arr = sources_summary
+                        .first()
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
 
-                let summary_text = sources_summary
-                    .get(1)
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    let summary_text = sources_summary
+                        .get(1)
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
 
-                let parsed_sources = parse_sources(&sources_arr);
-                let report = extract_report(&sources_arr, summary_text);
+                    let parsed_sources = parse_sources(&sources_arr);
+                    let report = extract_report(&sources_arr, summary_text);
 
-                (parsed_sources, report)
-            } else {
-                (Vec::new(), None)
-            };
+                    (parsed_sources, report)
+                } else {
+                    (Vec::new(), None)
+                };
 
             // Status code at data[4]
             let code = data.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
@@ -227,10 +226,7 @@ pub fn parse_all_research_tasks(value: &serde_json::Value) -> Vec<(String, Resea
 /// - Deep research (current): `[None, [title, report_markdown], None, type, ...]`
 /// - Deep research (legacy): `[None, title, None, type, ..., [chunk1, chunk2, ...]]`
 fn parse_sources(sources: &[serde_json::Value]) -> Vec<ResearchSource> {
-    sources
-        .iter()
-        .filter_map(parse_single_source)
-        .collect()
+    sources.iter().filter_map(parse_single_source).collect()
 }
 
 fn parse_single_source(src: &serde_json::Value) -> Option<ResearchSource> {
@@ -369,7 +365,12 @@ mod tests {
     #[test]
     fn test_parse_deep_research_current_format() {
         // [None, [title, report_markdown], None, type, ...]
-        let src = json!([null, ["Research Report", "# Report\n\nSome markdown content"], null, 5]);
+        let src = json!([
+            null,
+            ["Research Report", "# Report\n\nSome markdown content"],
+            null,
+            5
+        ]);
         let parsed = parse_single_source(&src).unwrap();
         assert!(parsed.url.is_none());
         assert_eq!(parsed.title, Some("Research Report".to_string()));
@@ -383,7 +384,15 @@ mod tests {
     #[test]
     fn test_parse_deep_research_legacy_format() {
         // [None, "Report Title", None, type, null, null, ["chunk1", "chunk2"]]
-        let src = json!([null, "Report Title", null, 5, null, null, ["# Part 1", "# Part 2"]]);
+        let src = json!([
+            null,
+            "Report Title",
+            null,
+            5,
+            null,
+            null,
+            ["# Part 1", "# Part 2"]
+        ]);
         let parsed = parse_single_source(&src).unwrap();
         assert!(parsed.url.is_none());
         assert_eq!(parsed.title, Some("Report Title".to_string()));
@@ -395,7 +404,15 @@ mod tests {
         let sources = json!([
             ["https://example.com", "Fast Source", "desc", 1],
             [null, ["Deep Report", "# Full report"], null, 5],
-            [null, "Legacy Report", null, 5, null, null, ["chunk1", "chunk2"]]
+            [
+                null,
+                "Legacy Report",
+                null,
+                5,
+                null,
+                null,
+                ["chunk1", "chunk2"]
+            ]
         ]);
         let arr = sources.as_array().unwrap();
         let parsed = parse_sources(arr);
@@ -409,19 +426,31 @@ mod tests {
 
     #[test]
     fn test_extract_report_current_format() {
-        let sources = json!([
-            [null, ["Report", "# My Research\n\nDetailed findings"], null, 5]
-        ]);
+        let sources = json!([[
+            null,
+            ["Report", "# My Research\n\nDetailed findings"],
+            null,
+            5
+        ]]);
         let arr = sources.as_array().unwrap();
         let report = extract_report(arr, None);
-        assert_eq!(report, Some("# My Research\n\nDetailed findings".to_string()));
+        assert_eq!(
+            report,
+            Some("# My Research\n\nDetailed findings".to_string())
+        );
     }
 
     #[test]
     fn test_extract_report_legacy_format() {
-        let sources = json!([
-            [null, "Report", null, 5, null, null, ["# Part 1", "## Part 2"]]
-        ]);
+        let sources = json!([[
+            null,
+            "Report",
+            null,
+            5,
+            null,
+            null,
+            ["# Part 1", "## Part 2"]
+        ]]);
         let arr = sources.as_array().unwrap();
         let report = extract_report(arr, None);
         assert_eq!(report, Some("# Part 1\n\n## Part 2".to_string()));
@@ -447,23 +476,19 @@ mod tests {
 
     #[test]
     fn test_parse_all_research_tasks_completed() {
-        let response = json!([
+        let response = json!([[
+            "task-123",
             [
-                "task-123",
+                null,
+                ["AI research query"],
+                null,
                 [
-                    null,
-                    ["AI research query"],
-                    null,
-                    [
-                        [
-                            ["https://example.com", "Source 1", "desc", 1]
-                        ],
-                        "Summary text"
-                    ],
-                    6
-                ]
+                    [["https://example.com", "Source 1", "desc", 1]],
+                    "Summary text"
+                ],
+                6
             ]
-        ]);
+        ]]);
         let tasks = parse_all_research_tasks(&response);
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].0, "task-123");
@@ -475,18 +500,7 @@ mod tests {
 
     #[test]
     fn test_parse_all_research_tasks_in_progress() {
-        let response = json!([
-            [
-                "task-456",
-                [
-                    null,
-                    ["query"],
-                    null,
-                    [[], ""],
-                    1
-                ]
-            ]
-        ]);
+        let response = json!([["task-456", [null, ["query"], null, [[], ""], 1]]]);
         let tasks = parse_all_research_tasks(&response);
         assert_eq!(tasks.len(), 1);
         assert!(!tasks[0].1.is_complete);
@@ -514,33 +528,39 @@ mod tests {
 
     #[test]
     fn test_deep_research_with_report_in_sources() {
-        let response = json!([
+        let response = json!([[
+            "task-deep",
             [
-                "task-deep",
+                null,
+                ["What is quantum computing?"],
+                null,
                 [
-                    null,
-                    ["What is quantum computing?"],
-                    null,
                     [
                         [
+                            null,
                             [
-                                null,
-                                ["Quantum Computing Report", "# Quantum Computing\n\n## Overview\n\nQuantum computers use qubits..."],
-                                null,
-                                5
+                                "Quantum Computing Report",
+                                "# Quantum Computing\n\n## Overview\n\nQuantum computers use qubits..."
                             ],
-                            ["https://arxiv.org/paper", "Paper", "Academic paper", 1]
+                            null,
+                            5
                         ],
-                        ""
+                        ["https://arxiv.org/paper", "Paper", "Academic paper", 1]
                     ],
-                    6
-                ]
+                    ""
+                ],
+                6
             ]
-        ]);
+        ]]);
         let tasks = parse_all_research_tasks(&response);
         assert_eq!(tasks.len(), 1);
         assert!(tasks[0].1.is_complete);
-        assert_eq!(tasks[0].1.report, Some("# Quantum Computing\n\n## Overview\n\nQuantum computers use qubits...".to_string()));
+        assert_eq!(
+            tasks[0].1.report,
+            Some(
+                "# Quantum Computing\n\n## Overview\n\nQuantum computers use qubits...".to_string()
+            )
+        );
         assert_eq!(tasks[0].1.sources.len(), 2);
     }
 }

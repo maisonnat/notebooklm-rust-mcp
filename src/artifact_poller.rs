@@ -20,9 +20,9 @@ use tracing::info;
 
 use crate::errors::{NotebookLmError, NotebookResult};
 use crate::parser::Artifact;
-use crate::rpc::artifacts::ArtifactType;
 #[cfg(test)]
 use crate::rpc::artifacts::ArtifactStatus;
+use crate::rpc::artifacts::ArtifactType;
 
 /// Reference to NotebookLmClient behind Arc<RwLock<>>.
 pub type ArtifactClientRef = Arc<RwLock<crate::NotebookLmClient>>;
@@ -115,11 +115,7 @@ impl ArtifactPoller {
     ///
     /// Returns `ArtifactNotFound` if the artifact is not in the list.
     /// This can happen if the artifact was deleted or the task_id is wrong.
-    pub async fn poll_status(
-        &self,
-        notebook_id: &str,
-        task_id: &str,
-    ) -> NotebookResult<Artifact> {
+    pub async fn poll_status(&self, notebook_id: &str, task_id: &str) -> NotebookResult<Artifact> {
         let client = self.client.read().await;
 
         let artifacts = client
@@ -128,9 +124,7 @@ impl ArtifactPoller {
             .map_err(NotebookLmError::from_string)?;
 
         // Scan for the artifact with matching task_id
-        let found = artifacts
-            .into_iter()
-            .find(|a| a.matches_task_id(task_id));
+        let found = artifacts.into_iter().find(|a| a.matches_task_id(task_id));
 
         match found {
             Some(artifact) => {
@@ -222,7 +216,9 @@ impl ArtifactPoller {
                         } else {
                             info!(
                                 "Artifact {} completed successfully (kind: {}, elapsed: {:?})",
-                                task_id, artifact.kind, start.elapsed()
+                                task_id,
+                                artifact.kind,
+                                start.elapsed()
                             );
                             return Ok(artifact);
                         }
@@ -349,9 +345,11 @@ fn is_infographic_media_ready(arr: &[serde_json::Value]) -> bool {
     // Forward-scan: look for any nested URL in the artifact data
     for item in arr.iter() {
         if let Some(url) = scan_for_http_url(item)
-            && url.starts_with("http") && !url.contains("notebooklm.google.com") {
-                return true;
-            }
+            && url.starts_with("http")
+            && !url.contains("notebooklm.google.com")
+        {
+            return true;
+        }
     }
     false
 }
@@ -377,9 +375,10 @@ fn scan_for_http_url(value: &serde_json::Value) -> Option<String> {
                 .and_then(|v| v.as_array())
                 .and_then(|v| v.first())
                 .and_then(|v| v.as_str())
-                && nested.starts_with("http") {
-                    return Some(nested.to_string());
-                }
+            && nested.starts_with("http")
+        {
+            return Some(nested.to_string());
+        }
         // Also scan children
         for item in arr {
             if let Some(url) = scan_for_http_url(item) {
