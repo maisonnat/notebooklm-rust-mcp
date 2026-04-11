@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 current_plan: 3 (last plan of phase)
 status: verifying
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-04-11T16:39:26.266Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-04-11T16:45:02.145Z"
 progress:
   total_phases: 2
   completed_phases: 1
@@ -42,6 +42,13 @@ progress:
 - [Phase 02-github-actions-ci-cd-update-notifications]: D-02: Test matrix: ubuntu-latest, macos-latest, windows-latest
 - [Phase 02-github-actions-ci-cd-update-notifications]: D-03: Steps: cargo fmt --check, cargo clippy -- -D warnings, cargo test
 - [Phase 02-github-actions-ci-cd-update-notifications]: D-06: Build 6 targets: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64, Windows x86_64, Windows ARM64
+- [Phase 02-github-actions-ci-cd-update-notifications]: D-04: Use actions/checkout@v4, dtolnay/rust-toolchain@stable, Swatinem/rust-cache@v2
+- [Phase 02-github-actions-ci-cd-update-notifications]: D-07: Use cross for ALL Linux targets (starship/ripgrep/fd pattern)
+- [Phase 02-github-actions-ci-cd-update-notifications]: D-10: fail-fast: false to see all platform results even if one fails
+- [Phase 02-github-actions-ci-cd-update-notifications]: D-08: Use softprops/action-gh-release@v2 for release creation
+- [Phase 02-github-actions-ci-cd-update-notifications]: D-09: Archive naming: notebooklm-mcp-v{version}-{target}.tar.gz
+- [Phase 02-github-actions-ci-cd-update-notifications]: D-10: fail-fast: false on build matrix
+- [Phase 02-github-actions-ci-cd-update-notifications]: D-11: No .rpm generation
 
 ## Blockers
 
@@ -53,7 +60,7 @@ None
 
 ## Last Session
 
-- **Stopped at:** Completed 02-03-PLAN.md
+- **Stopped at:** Completed 02-01-PLAN.md
 - **Timestamp:** 2026-04-11T?? (approx)
 
 ## Performance Metrics
