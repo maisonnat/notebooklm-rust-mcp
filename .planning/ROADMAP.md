@@ -25,7 +25,7 @@
 
 **Goal:** Multi-platform CI/CD pipeline (tests, clippy, fmt on push/PR; cross-platform release builds on tag push) and an MCP/CLI tool to check for updates from GitHub Releases.
 
-**Plans:** 3 plans in 1 wave (all parallel)
+**Plans:** 3/3 plans complete
 
 ### Scope
 - CI workflow (`ci.yml`): test on ubuntu/macos/windows, clippy, fmt check
@@ -36,9 +36,9 @@
 - MCP tool `check_for_updates`: expose update check to AI agents
 
 ### Plans
-- [ ] 02-01-PLAN.md — CI workflow (ci.yml): fmt + clippy + test on 3-OS matrix
-- [ ] 02-02-PLAN.md — Release workflow (release.yml): 6-target build matrix + GitHub Release
-- [ ] 02-03-PLAN.md — Update notification feature: shared module + CLI command + MCP tool
+- [x] 02-01-PLAN.md — CI workflow (ci.yml): fmt + clippy + test on 3-OS matrix
+- [x] 02-02-PLAN.md — Release workflow (release.yml): 6-target build matrix + GitHub Release
+- [x] 02-03-PLAN.md — Update notification feature: shared module + CLI command + MCP tool
 
 ### References
 - Engram observation #7 — Rust CLI CI/CD patterns (starship/ripgrep/fd analysis)
