@@ -3079,33 +3079,39 @@ mod tests {
         {
             (c, cs, s)
         } else {
-            // Try DPAPI session file directly
-            let session_path =
-                dirs::home_dir().map(|d| d.join(".notebooklm-mcp").join("session.bin"))?;
-            if !session_path.exists() {
-                return None;
+            // Try DPAPI session file directly (Windows only)
+            #[cfg(windows)]
+            {
+                let session_path =
+                    dirs::home_dir().map(|d| d.join(".notebooklm-mcp").join("session.bin"))?;
+                if !session_path.exists() {
+                    return None;
+                }
+                let encrypted = std::fs::read(&session_path).ok()?;
+                let json =
+                    windows_dpapi::decrypt_data(&encrypted, windows_dpapi::Scope::User, None)
+                        .ok()?;
+                let session: serde_json::Value = serde_json::from_slice(&json).ok()?;
+                (
+                    session
+                        .get("cookie")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    session
+                        .get("csrf")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    session
+                        .get("sid")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                )
             }
-            let encrypted = std::fs::read(&session_path).ok()?;
-            let json =
-                windows_dpapi::decrypt_data(&encrypted, windows_dpapi::Scope::User, None).ok()?;
-            let session: serde_json::Value = serde_json::from_slice(&json).ok()?;
-            (
-                session
-                    .get("cookie")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                session
-                    .get("csrf")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                session
-                    .get("sid")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-            )
+            #[cfg(not(windows))]
+            return None;
         };
 
         if cookie.is_empty() {

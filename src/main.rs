@@ -1588,6 +1588,7 @@ fn session_path() -> PathBuf {
     home.join(".notebooklm-mcp").join("session.bin")
 }
 
+#[cfg(windows)]
 fn save_session(data: &SessionData) -> Result<(), Box<dyn std::error::Error>> {
     let json = serde_json::to_vec(data)?;
     let encrypted = windows_dpapi::encrypt_data(&json, windows_dpapi::Scope::User, None)?;
@@ -1600,11 +1601,31 @@ fn save_session(data: &SessionData) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn load_session() -> Result<SessionData, Box<dyn std::error::Error>> {
     let path = session_path();
     let encrypted = std::fs::read(&path)?;
     let decrypted = windows_dpapi::decrypt_data(&encrypted, windows_dpapi::Scope::User, None)?;
     let data: SessionData = serde_json::from_slice(&decrypted)?;
+    Ok(data)
+}
+
+#[cfg(not(windows))]
+fn save_session(data: &SessionData) -> Result<(), Box<dyn std::error::Error>> {
+    let json = serde_json::to_vec(data)?;
+    let path = session_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, &json)?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn load_session() -> Result<SessionData, Box<dyn std::error::Error>> {
+    let path = session_path();
+    let bytes = std::fs::read(&path)?;
+    let data: SessionData = serde_json::from_slice(&bytes)?;
     Ok(data)
 }
 
