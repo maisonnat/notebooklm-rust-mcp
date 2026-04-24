@@ -277,6 +277,29 @@ enum Commands {
         #[arg(long)]
         timeout_secs: Option<u64>,
     },
+    /// Crear una nueva libreta vacía
+    Create {
+        /// Título de la nueva libreta
+        #[arg(long)]
+        title: String,
+    },
+    /// Listar todas las libretas de la cuenta
+    List,
+    /// Listar las fuentes (sources) de una libreta
+    SourceList {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+    },
+    /// Obtener detalles de una fuente específica de una libreta
+    SourceGet {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// ID de la fuente
+        #[arg(long)]
+        source_id: String,
+    },
     /// Verificar si hay una nueva versión disponible en GitHub Releases
     UpdateCheck,
 }
@@ -463,6 +486,17 @@ pub struct ResearchDeepDiveStartRequest {
 pub struct ResearchDeepDiveStatusRequest {
     pub notebook_id: String,
     pub task_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SourceListRequest {
+    pub notebook_id: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SourceGetRequest {
+    pub notebook_id: String,
+    pub source_id: String,
 }
 
 pub mod artifact_poller;
@@ -1274,6 +1308,67 @@ impl NotebookLmServer {
             );
             tokio::time::sleep(interval).await;
             interval = (interval * 2).min(max_interval);
+        }
+    }
+
+    #[tool(
+        name = "notebook_create",
+        description = "Create a new empty notebook with a given title. Returns the new notebook UUID."
+    )]
+    pub async fn notebook_create(&self, req: Parameters<NotebookCreateRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.create_notebook(&request.title).await {
+                Ok(id) => format!("✅ Notebook created. ID: {}", id),
+                Err(e) => format!("Error creating notebook: {}", e),
+            }
+        } else {
+            "Error: Server not authenticated".into()
+        }
+    }
+
+    #[tool(
+        name = "notebook_source_list",
+        description = "List all source IDs for a given notebook"
+    )]
+    pub async fn notebook_source_list(&self, req: Parameters<SourceListRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c.get_notebook_sources(&request.notebook_id).await {
+                Ok(sources) => {
+                    if sources.is_empty() {
+                        "No sources found in this notebook.".into()
+                    } else {
+                        format!("Sources ({}): {:?}", sources.len(), sources)
+                    }
+                }
+                Err(e) => format!("Error listing sources: {}", e),
+            }
+        } else {
+            "Error: Server not authenticated".into()
+        }
+    }
+
+    #[tool(
+        name = "notebook_source_get",
+        description = "Get details of a specific source entry in a notebook. Returns the raw source data including status."
+    )]
+    pub async fn notebook_source_get(&self, req: Parameters<SourceGetRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c
+                .get_source_entry(&request.notebook_id, &request.source_id)
+                .await
+            {
+                Ok(Some(entry)) => format!("Source entry: {}", entry),
+                Ok(None) => "Source not found in this notebook.".into(),
+                Err(e) => format!("Error getting source entry: {}", e),
+            }
+        } else {
+            "Error: Server not authenticated".into()
         }
     }
 
@@ -2462,6 +2557,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Err(e) => error!("Error iniciando deep research: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando Create — crear nueva libreta
+    if let Some(Commands::Create { title }) = &cli.command {
+        info!("Creando notebook \"{}\"...", title);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.create_notebook(title).await {
+            Ok(id) => println!("\n✅ Notebook creado: \"{}\" (id: {})", title, id),
+            Err(e) => error!("Error creando notebook: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando List — listar todas las libretas
+    if let Some(Commands::List) = &cli.command {
+        info!("Listando notebooks...");
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.list_notebooks().await {
+            Ok(notebooks) => {
+                if notebooks.is_empty() {
+                    println!("\n📭 No hay notebooks en la cuenta.");
+                } else {
+                    println!("\n📚 Notebooks ({}):", notebooks.len());
+                    for (i, nb) in notebooks.iter().enumerate() {
+                        println!("  {}. \"{}\" (id: {})", i + 1, nb.title, nb.id);
+                    }
+                }
+            }
+            Err(e) => error!("Error listando notebooks: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando SourceList — listar fuentes de una libreta (con nombres)
+    if let Some(Commands::SourceList { notebook_id }) = &cli.command {
+        info!("Listando fuentes del notebook {}...", notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.get_notebook_sources(notebook_id).await {
+            Ok(source_ids) => {
+                if source_ids.is_empty() {
+                    println!("\n📭 No hay fuentes en este notebook.");
+                } else {
+                    println!("\n📎 Fuentes ({}):", source_ids.len());
+                    for (i, sid) in source_ids.iter().enumerate() {
+                        // Try to get source name from entry
+                        let name = client.get_source_entry(notebook_id, sid).await
+                            .ok()
+                            .flatten()
+                            .and_then(|v| v.as_array()?.first()?.as_str().map(String::from))
+                            .unwrap_or_else(|| sid.clone());
+                        println!("  {}. {} [{}]", i + 1, name, sid);
+                    }
+                }
+            }
+            Err(e) => error!("Error listando fuentes: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando SourceGet — obtener detalles de una fuente específica
+    if let Some(Commands::SourceGet { notebook_id, source_id }) = &cli.command {
+        info!("Obteniendo fuente {} del notebook {}...", source_id, notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client.get_source_entry(notebook_id, source_id).await {
+            Ok(Some(entry)) => println!("\n📎 Source entry: {}", entry),
+            Ok(None) => println!("\n📭 Fuente no encontrada en este notebook."),
+            Err(e) => error!("Error obteniendo fuente: {}", e),
         }
         return Ok(());
     }

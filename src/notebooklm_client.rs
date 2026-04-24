@@ -1106,17 +1106,16 @@ impl NotebookLmClient {
         let inner =
             extract_by_rpc_id(&response, "rLM1Ne").ok_or("No se encontró respuesta rLM1Ne")?;
 
-        // Extraer notebook_data: [[title, sources, notebook_id, ...]]
-        let notebook_list =
-            extract_notebook_list(&inner).ok_or("No se pudo parsear lista de notebooks")?;
-
-        let notebook_data = notebook_list
-            .first()
+        // inner is already [["title", [sources...], "notebook_id", ...]]
+        // extract_notebook_list returns the inner element: ["title", [sources...], ...]
+        // which IS the notebook_data we need, not a list of notebooks
+        let notebook_data_arr = inner.as_array()
+            .and_then(|a| a.first())
             .and_then(|v| v.as_array())
             .ok_or("No se encontraron datos del notebook")?;
 
         // Extraer fuentes: extract_sources
-        let source_ids = extract_sources(notebook_data)
+        let source_ids = extract_sources(notebook_data_arr)
             .ok_or_else(|| "No se pudieron extraer las fuentes".to_string())?;
 
         Ok(source_ids)
@@ -1253,7 +1252,16 @@ impl NotebookLmClient {
         Ok(answer)
     }
 
-    /// Parse the streaming response to extract the answer text
+    /// Parse the streaming response to extract the answer text.
+    ///
+    /// NotebookLM returns a streaming response with multiple `wrb.fr` chunks:
+    /// - Thinking chunks: `[4][-1] == 2` (preliminary reasoning, NOT the answer)
+    /// - Answer chunks: `[4][-1] == 1` (the actual response)
+    ///
+    /// Strategy (matching notebooklm-py reference):
+    /// 1. Collect ALL text from ALL chunks
+    /// 2. Distinguish thinking vs answer using the `[4][-1]` marker
+    /// 3. Return the longest marked answer; fall back to longest unmarked text
     fn parse_streaming_response(response_text: &str) -> Result<String, String> {
         // Clean anti-XSSI prefix
         let cleaned = if let Some(stripped) = response_text.strip_prefix(")]}'") {
@@ -1262,83 +1270,111 @@ impl NotebookLmClient {
             response_text.to_string()
         };
 
-        // Split into lines and look for JSON chunks
-        let mut answers: Vec<String> = Vec::new();
+        let mut best_marked_answer = String::new();
+        let mut best_unmarked_text = String::new();
 
         for line in cleaned.lines() {
             let line = line.trim();
-            if line.is_empty() {
+            if line.is_empty() || line.chars().all(|c| c.is_ascii_digit()) {
                 continue;
             }
 
-            // Skip size markers
-            if line.chars().all(|c| c.is_ascii_digit()) {
-                continue;
-            }
-
-            // Try to parse as JSON
             if let Ok(data) = serde_json::from_str::<Value>(line) {
-                // Look for answer in the structure
-                if let Some(ans) = Self::extract_answer_from_chunk(&data)
-                    && !ans.is_empty()
-                {
-                    answers.push(ans);
+                // Extract best answer from this line (may contain multiple wrb.fr chunks)
+                if let Some((text, is_answer)) = Self::extract_answer_from_chunk(&data) {
+                    if text.is_empty() {
+                        continue;
+                    }
+                    if is_answer && text.len() > best_marked_answer.len() {
+                        best_marked_answer = text;
+                    } else if !is_answer && text.len() > best_unmarked_text.len() {
+                        best_unmarked_text = text;
+                    }
                 }
             }
         }
 
-        // Return the longest answer found
-        let best = answers.iter().max_by_key(|a| a.len()).cloned();
-
-        match best {
-            Some(answer) => Ok(answer),
-            None => {
-                // Try a simpler approach - look for text between quotes at the start
-                if cleaned.len() > 10 {
-                    Ok(format!(
-                        "(Respuesta recibida, parsing mejorable):\n{}",
-                        &cleaned[..cleaned.len().min(3000)]
-                    ))
-                } else {
-                    Err("No se pudo extraer respuesta".to_string())
-                }
-            }
+        // Prefer marked answers (real answer); fall back to longest unmarked (thinking)
+        if !best_marked_answer.is_empty() {
+            Ok(best_marked_answer)
+        } else if !best_unmarked_text.is_empty() {
+            Ok(best_unmarked_text)
+        } else if cleaned.len() > 10 {
+            Ok(format!(
+                "(Respuesta recibida, parsing mejorable):\n{}",
+                &cleaned[..cleaned.len().min(3000)]
+            ))
+        } else {
+            Err("No se pudo extraer respuesta".to_string())
         }
     }
 
-    /// Extract answer text from a response chunk
-    fn extract_answer_from_chunk(data: &Value) -> Option<String> {
-        // Response structure from notebooklm-py:
-        // [["wrb.fr", null, "<inner_json>", ...]]
-        // inner_json: [["answer_text", null, [citations], ...], ...]
+    /// Extract the best answer text from ALL `wrb.fr` entries in a JSON response.
+    ///
+    /// The response is one JSON array containing multiple `wrb.fr` entries.
+    /// Each entry is a separate streaming chunk. We iterate ALL of them,
+    /// accumulating the best marked answer (`[4][-1] == 1`) and best unmarked text.
+    fn extract_answer_from_chunk(data: &Value) -> Option<(String, bool)> {
+        let mut best_marked: Option<String> = None;
+        let mut best_unmarked: Option<String> = None;
 
         if let Some(arr) = data.as_array() {
             for item in arr {
                 if let Some(item_arr) = item.as_array() {
                     // Skip if first element isn't "wrb.fr"
-                    if item_arr.first()?.as_str()? != "wrb.fr" {
+                    if item_arr.first().and_then(|v| v.as_str()) != Some("wrb.fr") {
                         continue;
                     }
 
                     // Get inner JSON string
-                    let inner_json_str = item_arr.get(2)?.as_str()?;
-                    let inner_data: Value = serde_json::from_str(inner_json_str).ok()?;
+                    let inner_json_str = match item_arr.get(2).and_then(|v| v.as_str()) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    let inner_data: Value = match serde_json::from_str(inner_json_str) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
 
-                    // inner_data is an array: [[answer_text, null, citations, ...], ...]
+                    // inner_data: [[answer_text, null, [conv_id, hash], null, [citations..., marker], ...], ...]
                     if let Some(inner_arr) = inner_data.as_array() {
                         for inner_item in inner_arr {
                             if let Some(ia) = inner_item.as_array() {
                                 // Answer text is at index 0
-                                if let Some(text) = ia.first().and_then(|v| v.as_str())
-                                    && !text.is_empty()
-                                {
-                                    return Some(text.to_string());
+                                if let Some(text) = ia.first().and_then(|v| v.as_str()) {
+                                    if text.is_empty() {
+                                        continue;
+                                    }
+
+                                    // Marker: first[4][-1] == 1 means real answer, == 2 means thinking
+                                    let is_answer = ia
+                                        .get(4)
+                                        .and_then(|v| v.as_array())
+                                        .map(|a| a.last().and_then(|v| v.as_i64()) == Some(1))
+                                        .unwrap_or(false);
+
+                                    if is_answer {
+                                        if best_marked.as_ref().map_or(true, |b| text.len() > b.len()) {
+                                            best_marked = Some(text.to_string());
+                                        }
+                                    } else if best_unmarked.as_ref().map_or(true, |b| text.len() > b.len()) {
+                                        best_unmarked = Some(text.to_string());
+                                    }
                                 }
                             }
                         }
                     }
+                    // DON'T return here — keep iterating all wrb.fr items
                 }
             }
+        }
+
+        // Prefer marked answer; fall back to longest unmarked
+        if let Some(marked) = best_marked {
+            return Some((marked, true));
+        }
+        if let Some(unmarked) = best_unmarked {
+            return Some((unmarked, false));
         }
         None
     }
