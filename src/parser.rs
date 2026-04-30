@@ -167,9 +167,14 @@ pub fn extract_sources(notebook_data: &[Value]) -> Option<Vec<String>> {
 
     let mut ids = Vec::new();
     for source_entry in sources_arr {
-        // Formato: [[[source_id]], title, ...]
+        // Formato real (confirmado CDP 2026-04-30):
+        //   source_entry = [[[source_id]], title, metadata..., status...]
+        //   inner0 = [[source_id]]  ← array dentro de array
+        //   sid_array = [source_id]
+        //   sid = "source_id" (UUID de 36 chars)
         let inner0 = source_entry.get(0)?.as_array()?;
-        if let Some(sid) = inner0.first()?.as_str()
+        let sid_array = inner0.first()?.as_array()?;
+        if let Some(sid) = sid_array.first()?.as_str()
             && sid.len() == 36
         {
             ids.push(sid.to_string());
@@ -188,8 +193,13 @@ pub fn find_source_entry(notebook_data: &[Value], source_id: &str) -> Option<Val
     let sources_arr = sources_elem.as_array()?;
 
     for source_entry in sources_arr {
+        // Formato real (confirmado CDP 2026-04-30):
+        //   source_entry = [[[source_id]], title, metadata..., status...]
+        //   inner0 = [[source_id]]  ← array dentro de array
+        //   sid_array = [source_id]
         let inner0 = source_entry.get(0)?.as_array()?;
-        if let Some(sid) = inner0.first()?.as_str()
+        let sid_array = inner0.first()?.as_array()?;
+        if let Some(sid) = sid_array.first()?.as_str()
             && sid == source_id
         {
             return Some(source_entry.clone());

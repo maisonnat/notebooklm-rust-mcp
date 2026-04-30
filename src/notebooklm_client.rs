@@ -675,6 +675,31 @@ impl NotebookLmClient {
         Ok(())
     }
 
+    /// Update a note's title and content in a notebook.
+    ///
+    /// RPC: `cYAfTb`, payload: `[notebook_id, note_id, [[[content, title, [], 0]]]]`
+    /// This is the same RPC used by create_note step 2, but exposed standalone.
+    pub async fn update_note(
+        &self,
+        notebook_id: &str,
+        note_id: &str,
+        title: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        let t = title.replace('\"', "\\\"");
+        let c = content.replace('\"', "\\\"");
+        let update_payload = format!(
+            "[\"{}\",\"{}\",[[[\"{}\",\"{}\",[],0]]]]",
+            notebook_id, note_id, c, t
+        );
+        self.batchexecute("cYAfTb", &update_payload).await?;
+        info!(
+            "Updated note {} with title '{}' in notebook {}",
+            note_id, title, notebook_id
+        );
+        Ok(())
+    }
+
     pub async fn add_source(
         &self,
         notebook_id: &str,
@@ -1208,48 +1233,82 @@ impl NotebookLmClient {
 
         let f_req = serde_json::json!([null, params_json]).to_string();
 
-        // Step 6: POST to the streaming endpoint
-        let url = "https://notebooklm.google.com/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed";
-
-        let form_data = [("f.req", f_req), ("at", self.csrf.read().await.clone())];
-
-        self.limiter.until_ready().await;
-        Self::apply_jitter().await;
-
-        let res = self
-            .http
-            .post(url)
-            .form(&form_data)
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-        if !res.status().is_success() {
-            return Err(format!("Error HTTP {}", res.status()));
+        // Step 6: POST to the streaming endpoint with retry logic
+        let sid = self.sid.read().await.clone();
+        let mut url = String::from("https://notebooklm.google.com/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed?rt=c");
+        if !sid.is_empty() {
+            url.push_str(&format!("&source-path=/notebook/{}&f.sid={}", notebook_id, sid));
         }
 
-        let text = res
-            .text()
-            .await
-            .map_err(|e| format!("No body text: {}", e))?;
+        let csrf = self.csrf.read().await.clone();
+        let form_data = [("f.req", f_req), ("at", csrf)];
 
-        // Step 7: Parse the streaming response
-        // Format: )]}'\n<size>\n<json>\n<size>\n<json>...
-        let cleaned = if let Some(stripped) = text.strip_prefix(")]}'") {
-            stripped.trim_start().to_string()
-        } else {
-            text
-        };
+        // Retry loop: handle 503 (rate limiting / server timeout) with backoff
+        let max_retries = 3u32;
+        let mut last_error = String::new();
 
-        // Extract answer from chunks
-        let answer = Self::parse_streaming_response(&cleaned)?;
+        for attempt in 0..=max_retries {
+            self.limiter.until_ready().await;
+            Self::apply_jitter().await;
 
-        // Step 8: Cache the conversation for future questions
-        self.conversation_cache
-            .add_message(notebook_id, question.to_string(), answer.clone())
-            .await;
+            let res = self
+                .http
+                .post(&url)
+                .form(&form_data)
+                .send()
+                .await
+                .map_err(|e| format!("HTTP request failed: {}", e))?;
 
-        Ok(answer)
+            let status = res.status();
+
+            // 503 — rate limiting or server timeout, retry with backoff
+            if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                last_error = format!("Error HTTP {} (Service Unavailable)", status);
+                if attempt < max_retries {
+                    info!(
+                        "503 on ask_question, retry {}/{}",
+                        attempt + 1,
+                        max_retries
+                    );
+                    Self::apply_exponential_backoff(attempt).await;
+                    continue;
+                }
+                break;
+            }
+
+            if !status.is_success() {
+                return Err(format!("Error HTTP {}", status));
+            }
+
+            let text = res
+                .text()
+                .await
+                .map_err(|e| format!("No body text: {}", e))?;
+
+            // Parse the streaming response: )]}'<size>\n<json>\n<size>\n<json>...
+            let cleaned = if let Some(stripped) = text.strip_prefix(")]}'") {
+                stripped.trim_start().to_string()
+            } else {
+                text
+            };
+
+            // Extract answer from chunks
+            let answer = Self::parse_streaming_response(&cleaned)?;
+
+            // Cache the conversation for future questions
+            self.conversation_cache
+                .add_message(notebook_id, question.to_string(), answer.clone())
+                .await;
+
+            return Ok(answer);
+        }
+
+        // All retries exhausted
+        Err(format!(
+            "ask_question failed after {} retries: {}",
+            max_retries + 1,
+            last_error
+        ))
     }
 
     /// Parse the streaming response to extract the answer text.
@@ -2227,18 +2286,29 @@ impl NotebookLmClient {
             });
         }
 
-        // Find specific task or return latest
+        // Find specific task or return latest completed
         if task_id.is_empty() {
             return Ok(tasks.into_iter().next().map(|(_, s)| s).unwrap());
         }
 
-        for (id, status) in tasks {
+        for (id, status) in &tasks {
             if id == task_id {
-                return Ok(status);
+                return Ok(status.clone());
             }
         }
 
-        // Task not found
+        // Task ID not found in response — e3bVqc may use different task IDs than QA9ei.
+        // Return the latest completed task as fallback.
+        info!(
+            "Task ID {} not found in e3bVqc response (tasks: {}). Falling back to latest completed.",
+            task_id,
+            tasks.len()
+        );
+        if let Some((_, status)) = tasks.into_iter().next() {
+            return Ok(status);
+        }
+
+        // No tasks at all
         Ok(crate::rpc::notes::ResearchStatus {
             status_code: 0,
             sources: Vec::new(),

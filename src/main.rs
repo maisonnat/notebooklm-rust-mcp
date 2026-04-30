@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{Level, error, info, warn};
 use tracing_subscriber::FmtSubscriber;
@@ -256,6 +257,21 @@ enum Commands {
         #[arg(long)]
         note_id: String,
     },
+    /// Actualizar título y contenido de una nota existente
+    NoteUpdate {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// ID de la nota a actualizar
+        #[arg(long)]
+        note_id: String,
+        /// Nuevo título
+        #[arg(long)]
+        title: String,
+        /// Nuevo contenido
+        #[arg(long)]
+        content: String,
+    },
     /// Obtener historial de chat oficial de Google para una libreta
     ChatHistory {
         /// UUID de la libreta
@@ -464,6 +480,14 @@ pub struct NoteDeleteRequest {
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
+pub struct NoteUpdateRequest {
+    pub notebook_id: String,
+    pub note_id: String,
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ChatHistoryRequest {
     pub notebook_id: String,
     pub limit: Option<u32>,
@@ -512,6 +536,7 @@ pub mod rpc;
 pub mod source_poller;
 pub mod update_checker;
 use notebooklm_client::NotebookLmClient;
+use research_poller::{ResearchDeepDivePoller, ResearchPollerConfig};
 
 // Definición de ServerState encapsulado
 #[derive(Debug, Clone)]
@@ -1083,6 +1108,29 @@ impl NotebookLmServer {
                     request.note_id, request.notebook_id
                 ),
                 Err(e) => format!("Error eliminando nota: {}", e),
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
+    #[tool(
+        name = "note_update",
+        description = "Update the title and content of an existing note in a notebook."
+    )]
+    pub async fn note_update(&self, req: Parameters<NoteUpdateRequest>) -> String {
+        let request = &req.0;
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c
+                .update_note(&request.notebook_id, &request.note_id, &request.title, &request.content)
+                .await
+            {
+                Ok(()) => format!(
+                    "✅ Nota {} actualizada en cuaderno {}",
+                    request.note_id, request.notebook_id
+                ),
+                Err(e) => format!("Error actualizando nota: {}", e),
             }
         } else {
             "Error: Servidor no autenticado".into()
@@ -2455,6 +2503,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if let Some(Commands::NoteUpdate {
+        notebook_id,
+        note_id,
+        title,
+        content,
+    }) = &cli.command
+    {
+        info!(
+            "Actualizando nota {} en notebook {}...",
+            note_id, notebook_id
+        );
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        match client
+            .update_note(notebook_id, note_id, title, content)
+            .await
+        {
+            Ok(()) => println!(
+                "\n✅ Nota {} actualizada en cuaderno {}",
+                note_id, notebook_id
+            ),
+            Err(e) => error!("Error actualizando nota: {}", e),
+        }
+        return Ok(());
+    }
+
     if let Some(Commands::ChatHistory { notebook_id, limit }) = &cli.command {
         info!(
             "Obteniendo historial de chat del notebook {}...",
@@ -2503,56 +2577,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }) = &cli.command
     {
         info!("Iniciando deep research en notebook {}...", notebook_id);
-        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
-        let timeout_val = timeout_secs.unwrap_or(300);
+        let client = Arc::new(RwLock::new(NotebookLmClient::new(
+            cookie.clone(),
+            csrf.clone(),
+            sid.clone(),
+        )));
+        let timeout_val = Duration::from_secs(timeout_secs.unwrap_or(1500) as u64);
 
-        match client.start_deep_research(notebook_id, query).await {
+        match client.read().await.start_deep_research(notebook_id, query).await {
             Ok(task_id) => {
                 println!("\n=== DEEP RESEARCH INICIADO ===");
                 println!("Task ID: {}", task_id);
-                println!("Timeout: {}s", timeout_val);
+                println!("Timeout: {:?}", timeout_val);
+                println!("Usando backoff exponencial + jitter. Ctrl+C para cancelar.\n");
 
-                let start = std::time::Instant::now();
-                loop {
-                    if start.elapsed().as_secs() >= timeout_val {
-                        println!(
-                            "\n⏰ Timeout después de {}s. Task ID: {}",
-                            timeout_val, task_id
-                        );
-                        break;
-                    }
+                let config = ResearchPollerConfig::with_timeout(timeout_val);
+                let poller = ResearchDeepDivePoller::with_config(client.clone(), config);
 
-                    match client.poll_research_status(notebook_id, &task_id).await {
-                        Ok(status) if status.is_complete => {
-                            match client
-                                .import_research_sources(
-                                    notebook_id,
-                                    &task_id,
-                                    serde_json::json!([]),
-                                )
-                                .await
-                            {
-                                Ok(()) => {
-                                    println!("\n✅ Deep research completado. Fuentes importadas.")
+                // Esperar con backoff + jitter, permitir Ctrl+C
+                tokio::select! {
+                    result = poller.wait_for_completion(notebook_id, &task_id) => {
+                        match result {
+                            Ok(status) => {
+                                println!("\n✅ Deep research completado (code: {}). Importando fuentes...", status.status_code);
+                                match client
+                                    .read()
+                                    .await
+                                    .import_research_sources(
+                                        notebook_id,
+                                        &task_id,
+                                        serde_json::json!([]),
+                                    )
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        println!("✅ Fuentes importadas correctamente.")
+                                    }
+                                    Err(e) => error!(
+                                        "Research completado pero error importando fuentes: {}",
+                                        e
+                                    ),
                                 }
-                                Err(e) => error!(
-                                    "Research completado pero error importando fuentes: {}",
-                                    e
-                                ),
                             }
-                            break;
+                            Err(e) => error!("Error en deep research: {:?}", e),
                         }
-                        Ok(status) => {
-                            info!(
-                                "Research status: code={} — esperando...",
-                                status.status_code
-                            );
-                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        }
-                        Err(e) => {
-                            error!("Error consultando status: {}", e);
-                            break;
-                        }
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        println!("\n⚠️ Investigación cancelada por el usuario. Task ID: {}", task_id);
+                        println!("   Puedes retomar después con el mismo task_id.");
                     }
                 }
             }

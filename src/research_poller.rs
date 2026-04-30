@@ -200,8 +200,11 @@ pub fn parse_all_research_tasks(value: &serde_json::Value) -> Vec<(String, Resea
                     (Vec::new(), None)
                 };
 
-            // Status code at data[4]
-            let code = data.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+            // Status: detect completion by Result Type 5 (Deep Research Report) in sources
+            // data[4] is often null for deep research — don't rely on it.
+            // Instead, check if any source has result_type == 5 (Deep Research Report).
+            let has_deep_report = sources.iter().any(|s| s.result_type == 5);
+            let code = if has_deep_report { 2 } else { 1 };
 
             tasks.push((
                 task_id,
@@ -209,7 +212,7 @@ pub fn parse_all_research_tasks(value: &serde_json::Value) -> Vec<(String, Resea
                     status_code: code,
                     sources,
                     report,
-                    is_complete: code == 2 || code == 6,
+                    is_complete: has_deep_report || code == 2 || code == 6,
                     query,
                 },
             ));
