@@ -193,6 +193,7 @@ pub const UPLOAD_URL: &str = "https://notebooklm.google.com/upload/_/";
 // =========================================================================
 
 /// Wire format: [1, null, null, null, null, null, null, null, null, null, [1]]
+#[allow(dead_code)]
 pub(crate) fn source_config() -> serde_json::Value {
     serde_json::json!([1, null, null, null, null, null, null, null, null, null, [1]])
 }
@@ -202,31 +203,30 @@ pub(crate) fn source_config() -> serde_json::Value {
 // =========================================================================
 
 /// Builds the complete params for izAoDd with a regular URL.
-/// Wire: [[[null, null, [url], null, null, null, null, null]], notebook_id, [2], null, null]
+/// Wire: [[[null, null, [url], null, null, null, null, null]], notebook_id, [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]]
+/// NOTE: [2] must be expanded (same as o4cbdc fix) and trailing nulls removed.
 pub fn build_url_source_params(notebook_id: &str, url: &str) -> serde_json::Value {
     serde_json::json!([
         [UrlSourceInner::new(url).to_json_array()],
         notebook_id,
-        [2],
-        null,
-        null
+        [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]
     ])
 }
 
 /// Builds the complete params for izAoDd with a YouTube URL.
-/// Wire: [[[null, ..., [url], ..., 1]], notebook_id, [2], [1, null, ..., [1]]]
+/// Wire: [[[null, ..., [url], ..., 1]], notebook_id, [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]]
+/// NOTE: [2] must be expanded (same as o4cbdc fix) and source_config() removed.
 pub fn build_youtube_source_params(notebook_id: &str, url: &str) -> serde_json::Value {
     serde_json::json!([
         [YoutubeSourceInner::new(url).to_json_array()],
         notebook_id,
-        [2],
-        source_config()
+        [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]
     ])
 }
 
 /// Builds the complete params for izAoDd with a Drive document.
 /// NOTE: Single-wrapped source_data (not double).
-/// Wire: [[drive_data], notebook_id, [2], [1, null, ..., [1]]]
+/// Wire: [[drive_data], notebook_id, [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]]
 pub fn build_drive_source_params(
     notebook_id: &str,
     file_id: &str,
@@ -236,15 +236,19 @@ pub fn build_drive_source_params(
     serde_json::json!([
         [DriveSourceInner::new(file_id, mime_type, title).to_json_array()],
         notebook_id,
-        [2],
-        source_config()
+        [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]
     ])
 }
 
 /// Builds the complete params for o4cbdc (file registration).
 /// Wire: [[[filename]], notebook_id, [2], [1, null, ..., [1]]]
 pub fn build_file_register_params(notebook_id: &str, filename: &str) -> serde_json::Value {
-    serde_json::json!([[[filename]], notebook_id, [2], source_config()])
+    // CORRECT payload format (discovered via CDP 2026-05-03):
+    // Web UI sends: [[[filename]], notebook_id, [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]]
+    // OLD broken format: [[[filename]], notebook_id, [2], source_config()]
+    // The [2, null, null, [1, ...]] array at position 2 is critical — without it, o4cbdc returns error [3].
+    // source_config() at position 3 is REMOVED — web UI sends only 3 elements.
+    serde_json::json!([[[filename]], notebook_id, [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]]]])
 }
 
 #[cfg(test)]

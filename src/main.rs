@@ -293,6 +293,15 @@ enum Commands {
         #[arg(long)]
         timeout_secs: Option<u64>,
     },
+    /// Importar fuentes descubiertas de un Deep Research completado
+    ResearchDeepDiveImport {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// Task ID del research (opcional — usa la última si se omite)
+        #[arg(long)]
+        task_id: Option<String>,
+    },
     /// Crear una nueva libreta vacía
     Create {
         /// Título de la nueva libreta
@@ -508,6 +517,12 @@ pub struct ResearchDeepDiveStartRequest {
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ResearchDeepDiveStatusRequest {
+    pub notebook_id: String,
+    pub task_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct ResearchDeepDiveImportRequest {
     pub notebook_id: String,
     pub task_id: Option<String>,
 }
@@ -1270,6 +1285,30 @@ impl NotebookLmServer {
         }
     }
 
+    #[tool(
+        name = "research_deep_dive_import",
+        description = "Import discovered sources from a completed deep research task into the notebook. Polls e3bVqc to get the discovered sources, builds the correct LBwxtb payload with filtered sources (excludes type 5 Deep Research Reports), and imports them. Provide a task_id or omit to use the latest completed task."
+    )]
+    pub async fn research_deep_dive_import(
+        &self,
+        req: Parameters<ResearchDeepDiveImportRequest>,
+    ) -> String {
+        let request = req.0;
+        let task_id = request.task_id.as_deref().unwrap_or("");
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            match c
+                .import_research_sources_for_task(&request.notebook_id, task_id)
+                .await
+            {
+                Ok(msg) => msg,
+                Err(e) => format!("Error importing research sources: {}", e),
+            }
+        } else {
+            "Error: Servidor no autenticado".into()
+        }
+    }
+
     /// DEPRECATED: Use research_deep_dive_start + research_deep_dive_status instead.
     /// This tool will be removed in the next major release.
     #[tool(
@@ -1384,12 +1423,28 @@ impl NotebookLmServer {
         let request = &req.0;
         let lock = self.state.read().await;
         if let Some(c) = &*lock {
-            match c.get_notebook_sources(&request.notebook_id).await {
+            match c.get_notebook_sources_detailed(&request.notebook_id).await {
                 Ok(sources) => {
                     if sources.is_empty() {
                         "No sources found in this notebook.".into()
                     } else {
-                        format!("Sources ({}): {:?}", sources.len(), sources)
+                        let mut result = format!("Sources ({}):\n", sources.len());
+                        for (i, src) in sources.iter().enumerate() {
+                            let icon = match src.status {
+                                2 => "✅",
+                                3 => "❌",
+                                1 => "🔄",
+                                _ => "⬜",
+                            };
+                            result.push_str(&format!(
+                                "{:2}. {} \"{}\" (status={})\n",
+                                i + 1,
+                                icon,
+                                src.name,
+                                src.status
+                            ));
+                        }
+                        result
                     }
                 }
                 Err(e) => format!("Error listing sources: {}", e),
@@ -2629,6 +2684,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Err(e) => error!("Error iniciando deep research: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando ResearchDeepDiveImport — importar fuentes de un research completado
+    if let Some(Commands::ResearchDeepDiveImport {
+        notebook_id,
+        task_id,
+    }) = &cli.command
+    {
+        let task_id_str = task_id.as_deref().unwrap_or("");
+        info!(
+            "Importando fuentes de research task='{}' en notebook {}...",
+            task_id_str, notebook_id
+        );
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+        match client
+            .import_research_sources_for_task(notebook_id, task_id_str)
+            .await
+        {
+            Ok(msg) => println!("\n{}", msg),
+            Err(e) => error!("Error importando fuentes: {}", e),
         }
         return Ok(());
     }

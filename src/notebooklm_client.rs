@@ -22,10 +22,52 @@ use governor::{Quota, RateLimiter, clock::DefaultClock, state::InMemoryState, st
 use rand::Rng;
 use reqwest::{Client, header};
 use serde_json::Value;
+use std::path::Path;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::info;
 use uuid::Uuid;
+
+/// Detecta el MIME type de un archivo a partir de su extensión.
+///
+/// NotebookLM usa el header `x-goog-upload-header-content-type` para determinar
+/// cómo procesar el archivo subido. Si se manda `application/octet-stream`
+/// (genérico), el backend no sabe qué hacer y el source termina con status=3.
+/// Esta función reemplaza ese hardcodeo con el MIME correcto según la extensión.
+fn mime_type_from_filename(filename: &str) -> &'static str {
+    let ext = Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "epub" => "application/epub+zip",
+        "mp4" => "video/mp4",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "webm" => "video/webm",
+        "ogg" => "audio/ogg",
+        "csv" => "text/csv",
+        "html" | "htm" => "text/html",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        // Fallback seguro para cualquier otra extensión
+        _ => "application/octet-stream",
+    }
+}
 
 // Importar funciones del parser para acceso defensivo
 use crate::parser::{
@@ -43,6 +85,7 @@ use crate::parser::{
     extract_report_content,
     extract_slide_deck_url,
     extract_sources,
+    extract_sources_detailed,
     extract_video_url,
     find_source_entry,
     get_string_at,
@@ -281,6 +324,7 @@ impl NotebookLmClient {
         rpc_id: &str,
         payload: &str,
         max_retries: u32,
+        source_path: &str,
     ) -> Result<Value, String> {
         let mut last_error = String::new();
 
@@ -288,7 +332,7 @@ impl NotebookLmClient {
             // --- Circuit breaker check ---
             self.check_circuit_breaker()?;
 
-            match self.batchexecute_no_retry(rpc_id, payload).await {
+            match self.batchexecute_no_retry(rpc_id, payload, source_path).await {
                 Ok(result) => {
                     self.record_auth_success();
                     return Ok(result);
@@ -311,7 +355,7 @@ impl NotebookLmClient {
                                 info!("CSRF refresh successful, retrying {}", rpc_id);
 
                                 // Retry once with new token
-                                match self.batchexecute_no_retry(rpc_id, payload).await {
+                                match self.batchexecute_no_retry(rpc_id, payload, source_path).await {
                                     Ok(result) => {
                                         self.record_auth_success();
                                         return Ok(result);
@@ -370,11 +414,16 @@ impl NotebookLmClient {
     }
 
     async fn batchexecute(&self, rpc_id: &str, payload: &str) -> Result<Value, String> {
-        self.batchexecute_with_retry(rpc_id, payload, 3).await
+        self.batchexecute_with_retry(rpc_id, payload, 3, "").await
     }
 
     /// Internal batchexecute without retry (for when caller handles retries)
-    async fn batchexecute_no_retry(&self, rpc_id: &str, payload: &str) -> Result<Value, String> {
+    async fn batchexecute_no_retry(
+        &self,
+        rpc_id: &str,
+        payload: &str,
+        source_path: &str,
+    ) -> Result<Value, String> {
         self.limiter.until_ready().await;
         Self::apply_jitter().await;
 
@@ -396,8 +445,9 @@ impl NotebookLmClient {
             "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids={}&rt=c",
             rpc_id
         );
+        let sp = if source_path.is_empty() { "/" } else { source_path };
         if !sid.is_empty() {
-            url.push_str(&format!("&source-path=/&f.sid={}", sid));
+            url.push_str(&format!("&source-path={}&f.sid={}", sp, sid));
         }
 
         let res = self
@@ -689,10 +739,12 @@ impl NotebookLmClient {
         let t = title.replace('\"', "\\\"");
         let c = content.replace('\"', "\\\"");
         let update_payload = format!(
-            "[\"{}\",\"{}\",[[[\"{}\",\"{}\",[],0]]]]",
+            "[\"{}\",\"{}\",[[[\"{}\",\"{}\",[],0]],[2]]",
             notebook_id, note_id, c, t
         );
-        self.batchexecute("cYAfTb", &update_payload).await?;
+        let source_path = format!("/notebook/{}", notebook_id);
+        self.batchexecute_with_retry("cYAfTb", &update_payload, 3, &source_path)
+            .await?;
         info!(
             "Updated note {} with title '{}' in notebook {}",
             note_id, title, notebook_id
@@ -709,10 +761,13 @@ impl NotebookLmClient {
         let t = title.replace('\"', "\\\"");
         let c = content.replace('\"', "\\\"");
         let inner_json = format!(
-            "[[[null,[\"{}\",\"{}\"],null,2,null,null,null,null,null,null,1]],\"{}\",[2],[1,null,null,null,null,null,null,null,null,null,[1]]]",
+            "[[[null,[\"{}\",\"{}\"],null,2,null,null,null,null,null,null,1]],\"{}\",[2,null,null,[1,null,null,null,null,null,null,null,null,null,[1]]]]",
             t, c, notebook_id
         );
-        let response = self.batchexecute("izAoDd", &inner_json).await?;
+        let source_path = format!("/notebook/{}", notebook_id);
+        let response = self
+            .batchexecute_with_retry("izAoDd", &inner_json, 3, &source_path)
+            .await?;
 
         // Usar parser defensivo: extract_by_rpc_id
         let inner =
@@ -750,7 +805,7 @@ impl NotebookLmClient {
         let inner_json = serde_json::to_string(&params)
             .map_err(|e| format!("Failed to serialize URL source params: {}", e))?;
 
-        let response = self.batchexecute("izAoDd", &inner_json).await?;
+        let response = self.batchexecute_with_retry("izAoDd", &inner_json, 3, &format!("/notebook/{}", notebook_id)).await?;
 
         // Parser defensivo: extract_by_rpc_id
         let inner =
@@ -800,7 +855,7 @@ impl NotebookLmClient {
         let inner_json = serde_json::to_string(&params)
             .map_err(|e| format!("Failed to serialize Drive source params: {}", e))?;
 
-        let response = self.batchexecute("izAoDd", &inner_json).await?;
+        let response = self.batchexecute_with_retry("izAoDd", &inner_json, 3, &format!("/notebook/{}", notebook_id)).await?;
 
         // Parser defensivo: extract_by_rpc_id
         let inner =
@@ -836,7 +891,18 @@ impl NotebookLmClient {
         let inner_json = serde_json::to_string(&params)
             .map_err(|e| format!("Failed to serialize file register params: {}", e))?;
 
-        let response = self.batchexecute("o4cbdc", &inner_json).await?;
+        // CRITICAL: o4cbdc requires source-path=/notebook/{id} (not just /)
+        // Web UI sends: source-path=/notebook/{notebook_id}
+        // Without the correct source-path, o4cbdc returns error [3]
+        let source_path = format!("/notebook/{}", notebook_id);
+        let response = self
+            .batchexecute_with_retry(
+                "o4cbdc",
+                &inner_json,
+                3,
+                &source_path,
+            )
+            .await?;
 
         // Parser defensivo: extract_by_rpc_id
         let inner =
@@ -867,17 +933,14 @@ impl NotebookLmClient {
         let res = self
             .upload_http
             .post(&url)
-            .header("Content-Type", "application/json")
+            .header("Accept", "*/*")
+            .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+            .header("Origin", "https://notebooklm.google.com")
+            .header("Referer", "https://notebooklm.google.com/")
+            .header("x-goog-authuser", "0")
             .header("x-goog-upload-command", "start")
+            .header("x-goog-upload-header-content-length", _file_size.to_string())
             .header("x-goog-upload-protocol", "resumable")
-            .header(
-                "x-goog-upload-header-content-length",
-                _file_size.to_string(),
-            )
-            .header(
-                "x-goog-upload-header-content-type",
-                "application/octet-stream",
-            )
             .body(body_json)
             .send()
             .await
@@ -922,6 +985,11 @@ impl NotebookLmClient {
         let res = self
             .upload_http
             .post(upload_url)
+            .header("Accept", "*/*")
+            .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
+            .header("Origin", "https://notebooklm.google.com")
+            .header("Referer", "https://notebooklm.google.com/")
+            .header("x-goog-authuser", "0")
             .header("x-goog-upload-command", "upload, finalize")
             .header("x-goog-upload-offset", "0")
             .body(body)
@@ -1144,6 +1212,30 @@ impl NotebookLmClient {
             .ok_or_else(|| "No se pudieron extraer las fuentes".to_string())?;
 
         Ok(source_ids)
+    }
+
+    /// Get sources with names and status codes from a single rLM1Ne call.
+    /// Returns Vec<SourceInfo> with id, name, and status for each source.
+    pub async fn get_notebook_sources_detailed(
+        &self,
+        notebook_id: &str,
+    ) -> Result<Vec<crate::parser::SourceInfo>, String> {
+        let payload = format!(
+            "[\"{}\", null, [2], null, 0]",
+            notebook_id.replace('"', "\\\"")
+        );
+        let response = self.batchexecute("rLM1Ne", &payload).await?;
+
+        let inner =
+            extract_by_rpc_id(&response, "rLM1Ne").ok_or("No se encontró respuesta rLM1Ne")?;
+
+        let notebook_data_arr = inner.as_array()
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_array())
+            .ok_or("No se encontraron datos del notebook")?;
+
+        extract_sources_detailed(notebook_data_arr)
+            .ok_or_else(|| "No se pudieron extraer las fuentes".to_string())
     }
 
     /// Get a specific source entry by ID from a notebook.
@@ -2320,17 +2412,139 @@ impl NotebookLmClient {
 
     /// Import discovered sources from a completed deep research task into a notebook.
     /// RPC: `LBwxtb`
+    /// Payload: `[null, [4], task_id, notebook_id, [sources]]`
     pub async fn import_research_sources(
         &self,
         notebook_id: &str,
-        _task_id: &str,
+        task_id: &str,
         sources: serde_json::Value,
     ) -> Result<(), String> {
-        let inner_json = serde_json::to_string(&sources)
-            .map_err(|e| format!("Failed to serialize research sources: {}", e))?;
+        // Build the correct LBwxtb payload per the API spec: [null, [2], task_id, notebook_id, [sources]]
+        // Sources must have Result Types 1, 2, 3, or 8 — type 5 (Deep Research Report) is excluded.
+        let filtered_sources = Self::filter_importable_sources(&sources);
+        let payload = serde_json::json!([null, [2], task_id, notebook_id, filtered_sources]);
+        let inner_json = serde_json::to_string(&payload)
+            .map_err(|e| format!("Failed to serialize research sources payload: {}", e))?;
         self.batchexecute("LBwxtb", &inner_json).await?;
         info!("Imported research sources into notebook {}", notebook_id);
         Ok(())
+    }
+
+    /// Import research sources by first polling e3bVqc to get discovered sources,
+    /// then calling LBwxtb with the correct payload.
+    ///
+    /// This is the safe, self-contained method — callers don't need to
+    /// understand the e3bVqc response format.
+    pub async fn import_research_sources_for_task(
+        &self,
+        notebook_id: &str,
+        task_id: &str,
+    ) -> Result<String, String> {
+        // Step 1: Poll e3bVqc to get current status + raw sources
+        let inner_json = format!("[null,null,\"{}\"]", notebook_id);
+        let response = self.batchexecute("e3bVqc", &inner_json).await?;
+        let inner = crate::parser::extract_by_rpc_id(&response, "e3bVqc")
+            .ok_or_else(|| "No se encontró respuesta e3bVqc para importar fuentes".to_string())?;
+
+        let tasks = crate::research_poller::parse_all_research_tasks(&inner);
+
+        // Find the matching task — try exact match, fall back to latest
+        let status = if task_id.is_empty() {
+            tasks.into_iter().next().map(|(_, s)| s)
+        } else {
+            tasks.into_iter().find(|(id, _)| id == task_id).map(|(_, s)| s)
+        };
+
+        let status = status.ok_or_else(|| {
+            format!("No se encontró research task {} en notebook {}", task_id, notebook_id)
+        })?;
+
+        if !status.is_complete {
+            return Err(format!(
+                "Research task {} no ha completado (status_code: {}). Usa research_deep_dive_status primero.",
+                task_id, status.status_code
+            ));
+        }
+
+        let source_count = status.sources.len();
+
+        // Step 2: Extract raw source array from e3bVqc inner JSON for LBwxtb
+        let sources_array = Self::extract_raw_sources_from_e3bvqc(&inner, task_id)
+            .unwrap_or(serde_json::Value::Array(Vec::new()));
+
+        // Step 3: Call LBwxtb with the proper payload
+        self.import_research_sources(notebook_id, task_id, sources_array).await?;
+
+        Ok(format!(
+            "✅ Imported {} sources from research task {} into notebook {}",
+            source_count, task_id, notebook_id
+        ))
+    }
+
+    /// Extract the raw sources array from an e3bVqc response for a specific task.
+    ///
+    /// e3bVqc task data structure:
+    ///   task = [task_id, [data]]
+    ///   data[3] = [[raw_sources...], summary_text]
+    ///
+    /// Returns the raw_sources array at data[3][0].
+    fn extract_raw_sources_from_e3bvqc(
+        inner: &serde_json::Value,
+        task_id: &str,
+    ) -> Option<serde_json::Value> {
+        let arr = inner.as_array()?;
+        for item in arr {
+            let item_arr = item.as_array()?;
+            let tid = item_arr.first()?.as_str()?;
+            if tid != task_id {
+                continue;
+            }
+            // item[1] = data array
+            let data = item_arr.get(1)?.as_array()?;
+            // data[3] = [sources_array, summary_text]
+            let sources_summary = data.get(3)?.as_array()?;
+            // sources_summary[0] = [[source1], [source2], ...]
+            let raw_sources = sources_summary.first()?.clone();
+            return Some(raw_sources);
+        }
+        None
+    }
+
+    /// Filter a raw sources array to only include importable source entries.
+    ///
+    /// Result Type mapping (from the raw source array at index 3 or 10):
+    /// - 1 = Web URL ✅
+    /// - 2 = Google Doc ✅
+    /// - 3 = Google Slides ✅
+    /// - 5 = Deep Research Report ❌ (excluded — this is the AI-generated report, not a source)
+    /// - 8 = Other importable type ✅
+    fn filter_importable_sources(sources: &serde_json::Value) -> serde_json::Value {
+        let arr = match sources.as_array() {
+            Some(a) => a,
+            None => return sources.clone(),
+        };
+
+        let filtered: Vec<serde_json::Value> = arr
+            .iter()
+            .filter(|src| {
+                if let Some(src_arr) = src.as_array() {
+                    let type1 = src_arr.get(3).and_then(|v| v.as_u64());
+                    let type2 = src_arr.get(10).and_then(|v| v.as_u64());
+                    let result_type = type1.or(type2);
+                    match result_type {
+                        Some(5) => false, // Deep Research Report — exclude
+                        Some(1 | 2 | 3 | 8) => true, // Web, Doc, Slides, Other — include
+                        Some(_) => true,  // Unknown types — include as safety
+                        None => true,     // No type info — include as safety
+                    }
+                } else {
+                    true // Not an array — include
+                }
+            })
+            .cloned()
+            .collect();
+
+        serde_json::Value::Array(filtered)
     }
 
     /// Check if the RPC response indicates rate limiting.

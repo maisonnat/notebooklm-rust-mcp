@@ -7,6 +7,7 @@
 //!
 //! Status codes: 1 = in_progress, 2 = completed, 6 = completed (deep research)
 
+use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -136,7 +137,9 @@ impl ResearchDeepDivePoller {
                 interval
             );
 
-            tokio::time::sleep(interval).await;
+            // Add random jitter (0-2s) to avoid predictable polling pattern
+            let jitter = rand::thread_rng().gen_range(0..=2000);
+            tokio::time::sleep(interval + Duration::from_millis(jitter)).await;
             interval = (interval * 2).min(self.config.max_interval);
         }
     }
@@ -200,11 +203,12 @@ pub fn parse_all_research_tasks(value: &serde_json::Value) -> Vec<(String, Resea
                     (Vec::new(), None)
                 };
 
-            // Status: detect completion by Result Type 5 (Deep Research Report) in sources
-            // data[4] is often null for deep research — don't rely on it.
-            // Instead, check if any source has result_type == 5 (Deep Research Report).
+            // Status: detect completion by either:
+            // 1. Result Type 5 (Deep Research Report) in sources
+            // 2. Legacy status code at data[4]: 2 = completed, 6 = completed (deep research)
             let has_deep_report = sources.iter().any(|s| s.result_type == 5);
-            let code = if has_deep_report { 2 } else { 1 };
+            let legacy_code = data.get(4).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let code = if has_deep_report { 2 } else { legacy_code };
 
             tasks.push((
                 task_id,

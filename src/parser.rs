@@ -160,7 +160,48 @@ pub fn extract_notebook_list(inner: &Value) -> Option<Vec<Value>> {
     Some(array.to_vec())
 }
 
-/// Extrae fuentes de un notebook desde notebook_data[1]
+/// Parsed source info with name and status.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SourceInfo {
+    pub id: String,
+    pub name: String,
+    pub status: i64,
+}
+
+/// Extract sources with names and status codes from a single rLM1Ne call.
+/// Each source entry: [[[source_id]], "Source Name", [metadata...], [null, status_code, ...]]
+/// Returns None if parsing fails.
+pub fn extract_sources_detailed(notebook_data: &[Value]) -> Option<Vec<SourceInfo>> {
+    let sources_elem = notebook_data.get(1)?;
+    let sources_arr = sources_elem.as_array()?;
+
+    let mut sources = Vec::new();
+    for source_entry in sources_arr {
+        let inner0 = source_entry.get(0)?.as_array()?;
+        let sid_array = inner0.first()?.as_array()?;
+        let id = sid_array.first()?.as_str()?.to_string();
+
+        let name = source_entry
+            .get(1)
+            .and_then(|v| v.as_str())
+            .unwrap_or("(unknown)")
+            .to_string();
+
+        // Status at entry[3][1]: 2=OK, 3=Failed, 1=Processing, 0=Unknown
+        let status = source_entry
+            .get(3)
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.get(1))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        sources.push(SourceInfo { id, name, status });
+    }
+
+    Some(sources)
+}
+
+/// Extract source IDs from notebook_data[1] (sources array).
 pub fn extract_sources(notebook_data: &[Value]) -> Option<Vec<String>> {
     let sources_elem = notebook_data.get(1)?;
     let sources_arr = sources_elem.as_array()?;

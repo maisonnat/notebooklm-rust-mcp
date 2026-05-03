@@ -8,6 +8,7 @@
 
 use crate::errors::{NotebookLmError, NotebookResult};
 use std::sync::Arc;
+use rand::Rng;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -155,7 +156,9 @@ impl SourcePoller {
                 }
             }
 
-            tokio::time::sleep(self.config.check_interval).await;
+            // Add random jitter (0-2s) to avoid predictable polling pattern
+            let jitter = rand::thread_rng().gen_range(0..=2000);
+            tokio::time::sleep(self.config.check_interval + Duration::from_millis(jitter)).await;
             retries += 1;
         }
     }

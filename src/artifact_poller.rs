@@ -13,6 +13,7 @@
 //! Design Decision (AD-4): Archivo separado, NO extender SourcePoller.
 //! SourcePoller es específico para fuentes con lógica distinta.
 
+use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -240,7 +241,9 @@ impl ArtifactPoller {
                 Err(e) => return Err(e),
             }
 
-            tokio::time::sleep(interval).await;
+            // Add random jitter (0-2s) to avoid predictable polling pattern
+            let jitter = rand::thread_rng().gen_range(0..=2000);
+            tokio::time::sleep(interval + Duration::from_millis(jitter)).await;
 
             // Exponential backoff: double interval, cap at max_interval
             interval = (interval * 2).min(self.config.max_interval);
