@@ -325,6 +325,15 @@ enum Commands {
         #[arg(long)]
         source_id: String,
     },
+    /// Detectar y eliminar fuentes duplicadas (por URL repetida)
+    SourceDedup {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// Modo dry-run: solo listar sin borrar
+        #[arg(long, default_value_t = true)]
+        dry_run: bool,
+    },
     /// Verificar si hay una nueva versión disponible en GitHub Releases
     UpdateCheck,
 }
@@ -536,6 +545,12 @@ pub struct SourceListRequest {
 pub struct SourceGetRequest {
     pub notebook_id: String,
     pub source_id: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SourceDedupRequest {
+    pub notebook_id: String,
+    pub dry_run: Option<bool>,
 }
 
 pub mod artifact_poller;
@@ -1470,6 +1485,86 @@ impl NotebookLmServer {
                 Ok(None) => "Source not found in this notebook.".into(),
                 Err(e) => format!("Error getting source entry: {}", e),
             }
+        } else {
+            "Error: Server not authenticated".into()
+        }
+    }
+
+    #[tool(
+        name = "source_dedup",
+        description = "Detect and remove duplicate sources (by URL) in a notebook. Set dry_run=true to only list duplicates without deleting."
+    )]
+    pub async fn source_dedup(&self, req: Parameters<SourceDedupRequest>) -> String {
+        let request = &req.0;
+        let dry_run = request.dry_run.unwrap_or(true);
+        let lock = self.state.read().await;
+        if let Some(c) = &*lock {
+            let sources = match c.get_notebook_sources_detailed(&request.notebook_id).await {
+                Ok(s) => s,
+                Err(e) => return format!("Error listing sources: {}", e),
+            };
+            if sources.is_empty() {
+                return "No sources in this notebook.".into();
+            }
+            let mut url_groups: std::collections::HashMap<String, Vec<(String, String)>> = std::collections::HashMap::new();
+            let mut errors = Vec::new();
+            for src in &sources {
+                match c.get_source_fulltext(&request.notebook_id, &src.id).await {
+                    Ok(fulltext) => {
+                        let url = fulltext.lines()
+                            .find(|l| l.starts_with("http://") || l.starts_with("https://"))
+                            .unwrap_or("")
+                            .to_string();
+                        if url.is_empty() {
+                            url_groups.entry(src.name.clone()).or_default().push((src.id.clone(), src.name.clone()));
+                        } else {
+                            url_groups.entry(url).or_default().push((src.id.clone(), src.name.clone()));
+                        }
+                    }
+                    Err(e) => errors.push(format!("  {}: {}", src.name, e)),
+                }
+            }
+            let mut duplicates = Vec::new();
+            for (key, items) in &url_groups {
+                if items.len() > 1 {
+                    for dup in &items[1..] {
+                        duplicates.push((key.clone(), dup.clone()));
+                    }
+                }
+            }
+            let mut result = String::new();
+            if duplicates.is_empty() {
+                result.push_str("✅ No duplicate sources found.\n");
+            } else {
+                result.push_str(&format!("🔍 Found {} duplicate sources:\n", duplicates.len()));
+                for (key, items) in &url_groups {
+                    if items.len() > 1 {
+                        result.push_str(&format!("\n  URL: {}\n", key));
+                        for (i, (id, name)) in items.iter().enumerate() {
+                            let tag = if i == 0 { "✅ KEEP" } else { "🗑️ DELETE" };
+                            result.push_str(&format!("    {} {} ({})\n", tag, name, id));
+                        }
+                    }
+                }
+                if !dry_run {
+                    result.push_str("\n🗑️ Deleting duplicates...\n");
+                    let mut deleted = 0;
+                    let mut failed = 0;
+                    for (_, (dup_id, dup_name)) in &duplicates {
+                        match c.delete_source(&request.notebook_id, dup_id).await {
+                            Ok(_) => { result.push_str(&format!("  ✅ Deleted: {} ({})\n", dup_name, dup_id)); deleted += 1; }
+                            Err(e) => { result.push_str(&format!("  ❌ Failed: {} ({}): {}\n", dup_name, dup_id, e)); failed += 1; }
+                        }
+                    }
+                    result.push_str(&format!("\n📊 Summary: {} deleted, {} failed\n", deleted, failed));
+                } else {
+                    result.push_str("\n💡 Run with dry_run=false to delete duplicates.\n");
+                }
+            }
+            if !errors.is_empty() {
+                result.push_str(&format!("\n⚠️ Errors reading some sources:\n{}", errors.join("\n")));
+            }
+            result
         } else {
             "Error: Server not authenticated".into()
         }
@@ -2743,25 +2838,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Comando SourceList — listar fuentes de una libreta (con nombres)
+    // Comando SourceList — listar fuentes de una libreta (con nombres y estados)
     if let Some(Commands::SourceList { notebook_id }) = &cli.command {
         info!("Listando fuentes del notebook {}...", notebook_id);
         let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
 
-        match client.get_notebook_sources(notebook_id).await {
-            Ok(source_ids) => {
-                if source_ids.is_empty() {
+        match client.get_notebook_sources_detailed(notebook_id).await {
+            Ok(sources) => {
+                if sources.is_empty() {
                     println!("\n📭 No hay fuentes en este notebook.");
                 } else {
-                    println!("\n📎 Fuentes ({}):", source_ids.len());
-                    for (i, sid) in source_ids.iter().enumerate() {
-                        // Try to get source name from entry
-                        let name = client.get_source_entry(notebook_id, sid).await
-                            .ok()
-                            .flatten()
-                            .and_then(|v| v.as_array()?.first()?.as_str().map(String::from))
-                            .unwrap_or_else(|| sid.clone());
-                        println!("  {}. {} [{}]", i + 1, name, sid);
+                    println!("\n📎 Fuentes ({}):", sources.len());
+                    for (i, src) in sources.iter().enumerate() {
+                        let icon = match src.status {
+                            2 => "✅",
+                            3 => "❌",
+                            1 => "🔄",
+                            _ => "⬜",
+                        };
+                        println!("  {:2}. {} \"{}\" (status={})", i + 1, icon, src.name, src.status);
                     }
                 }
             }
@@ -2779,6 +2874,106 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(Some(entry)) => println!("\n📎 Source entry: {}", entry),
             Ok(None) => println!("\n📭 Fuente no encontrada en este notebook."),
             Err(e) => error!("Error obteniendo fuente: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando SourceDedup — detectar y eliminar fuentes duplicadas
+    if let Some(Commands::SourceDedup { notebook_id, dry_run }) = &cli.command {
+        info!("Buscando fuentes duplicadas en el notebook {} (dry_run={})...", notebook_id, dry_run);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+
+        // Get all sources with names
+        let sources = match client.get_notebook_sources_detailed(notebook_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Error listing sources: {}", e);
+                return Ok(());
+            }
+        };
+
+        if sources.is_empty() {
+            println!("\n📭 No hay fuentes en este notebook.");
+            return Ok(());
+        }
+
+        // Group sources by URL (extract from fulltext)
+        use std::collections::HashMap;
+        let mut url_groups: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut errors = Vec::new();
+
+        println!("\n🔍 Analizando {} fuentes...", sources.len());
+        for src in &sources {
+            print!("  📄 {}... ", src.name);
+            match client.get_source_fulltext(notebook_id, &src.id).await {
+                Ok(fulltext) => {
+                    let url = fulltext.lines()
+                        .find(|l| l.starts_with("http://") || l.starts_with("https://"))
+                        .unwrap_or("")
+                        .to_string();
+                    if url.is_empty() {
+                        println!("(sin URL, agrupando por nombre)");
+                        url_groups.entry(src.name.clone()).or_default().push((src.id.clone(), src.name.clone()));
+                    } else {
+                        println!("✅ URL encontrada");
+                        url_groups.entry(url).or_default().push((src.id.clone(), src.name.clone()));
+                    }
+                }
+                Err(e) => {
+                    println!("❌ Error: {}", e);
+                    errors.push(format!("  {}: {}", src.name, e));
+                }
+            }
+        }
+
+        // Find duplicates
+        let mut total_duplicates = 0;
+        let mut has_duplicates = false;
+        println!("\n📊 Resultados:");
+        for (key, items) in &url_groups {
+            if items.len() > 1 {
+                has_duplicates = true;
+                let dup_count = items.len() - 1;
+                total_duplicates += dup_count;
+                println!("\n  🔗 URL: {}", key);
+                for (i, (id, name)) in items.iter().enumerate() {
+                    let tag = if i == 0 { "✅ KEEP" } else { "🗑️ DELETE" };
+                    println!("    {} {} ({})", tag, name, id);
+                }
+            }
+        }
+
+        if !has_duplicates {
+            println!("\n  ✅ No se encontraron fuentes duplicadas.");
+        } else {
+            println!("\n  🔍 Total duplicados: {}", total_duplicates);
+
+            if !dry_run {
+                println!("\n🗑️ Eliminando duplicados...");
+                let mut deleted = 0;
+                let mut failed = 0;
+                for (_, items) in &url_groups {
+                    if items.len() > 1 {
+                        for (dup_id, dup_name) in &items[1..] {
+                            print!("  Eliminando {} ({})... ", dup_name, dup_id);
+                            match client.delete_source(notebook_id, dup_id).await {
+                                Ok(_) => { println!("✅"); deleted += 1; }
+                                Err(e) => { println!("❌ {}", e); failed += 1; }
+                            }
+                        }
+                    }
+                }
+                println!("\n📊 Resumen: {} eliminados, {} fallos", deleted, failed);
+            } else {
+                println!("\n💡 Usa --dry-run false para eliminar los duplicados.");
+            }
+        }
+
+        if !errors.is_empty() {
+            println!("\n⚠️ Errores al leer algunas fuentes:");
+            for e in &errors {
+                println!("{}", e);
+            }
         }
         return Ok(());
     }
