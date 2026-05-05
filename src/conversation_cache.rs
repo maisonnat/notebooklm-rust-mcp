@@ -1,9 +1,17 @@
 //! Conversation cache para mantener historial de conversaciones por notebook.
 //! Evita crear nuevos UUID de conversación cada pregunta - reutiliza el mismo.
+//!
+//! Mantiene un sliding window de los últimos N turns para evitar que el
+//! payload de ask_question exceda el límite de ~3800 chars de Google.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// Máximo de turns (Q+A pairs) a mantener en el historial.
+/// Google's API tiene ~3800 chars de límite por payload.
+/// 2 turns = 4 mensajes es suficiente para mantener contexto sin saturar.
+const MAX_HISTORY_TURNS: usize = 2;
 
 /// Historial de una conversación (preguntas y respuestas)
 #[derive(Debug, Clone, Default)]
@@ -50,6 +58,7 @@ impl ConversationCache {
     }
 
     /// Agregar un mensaje al historial de un notebook
+    /// Mantiene sliding window: solo los últimos MAX_HISTORY_TURNS turns (Q+A pairs)
     pub async fn add_message(&self, notebook_id: &str, question: String, answer: String) {
         let mut cache = self.conversations.write().await;
 
@@ -57,6 +66,13 @@ impl ConversationCache {
             history
                 .messages
                 .push(ConversationMessage { question, answer });
+
+            // Sliding window: mantiene solo los últimos MAX_HISTORY_TURNS turns
+            let max_messages = MAX_HISTORY_TURNS * 2;
+            let excess = history.messages.len().saturating_sub(max_messages);
+            if excess > 0 {
+                history.messages.drain(0..excess);
+            }
         }
     }
 

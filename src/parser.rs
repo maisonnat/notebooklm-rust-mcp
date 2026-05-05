@@ -177,9 +177,24 @@ pub fn extract_sources_detailed(notebook_data: &[Value]) -> Option<Vec<SourceInf
 
     let mut sources = Vec::new();
     for source_entry in sources_arr {
-        let inner0 = source_entry.get(0)?.as_array()?;
-        let sid_array = inner0.first()?.as_array()?;
-        let id = sid_array.first()?.as_str()?.to_string();
+        // Formato puede ser [[source_id], ...] (nuevo) o [[[source_id]], ...] (antiguo)
+        let inner0 = match source_entry.get(0).and_then(|v| v.as_array()) {
+            Some(arr) => arr,
+            None => continue,
+        };
+        let id = match inner0.first().and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
+            None => {
+                // Try old format: [[[source_id]]]
+                match inner0.first().and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                }
+            }
+        };
 
         let name = source_entry
             .get(1)
@@ -198,7 +213,7 @@ pub fn extract_sources_detailed(notebook_data: &[Value]) -> Option<Vec<SourceInf
         sources.push(SourceInfo { id, name, status });
     }
 
-    Some(sources)
+    if sources.is_empty() { None } else { Some(sources) }
 }
 
 /// Extract source IDs from notebook_data[1] (sources array).
@@ -208,17 +223,26 @@ pub fn extract_sources(notebook_data: &[Value]) -> Option<Vec<String>> {
 
     let mut ids = Vec::new();
     for source_entry in sources_arr {
-        // Formato real (confirmado CDP 2026-04-30):
-        //   source_entry = [[[source_id]], title, metadata..., status...]
-        //   inner0 = [[source_id]]  ← array dentro de array
-        //   sid_array = [source_id]
-        //   sid = "source_id" (UUID de 36 chars)
+        // Formato real (puede variar):
+        //   source_entry[0] = [source_id] (formato nuevo, más simple)
+        //   source_entry[0] = [[source_id]] (formato antiguo, con doble array)
         let inner0 = source_entry.get(0)?.as_array()?;
-        let sid_array = inner0.first()?.as_array()?;
-        if let Some(sid) = sid_array.first()?.as_str()
-            && sid.len() == 36
+        // Try new format first: [source_id]
+        if let Some(sid) = inner0.first().and_then(|v| v.as_str()) {
+            if sid.len() == 36 {
+                ids.push(sid.to_string());
+                continue;
+            }
+        }
+        // Fallback to old format: [[source_id]]
+        if let Some(sid) = inner0.first()
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_str())
         {
-            ids.push(sid.to_string());
+            if sid.len() == 36 {
+                ids.push(sid.to_string());
+            }
         }
     }
 

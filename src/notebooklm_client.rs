@@ -1234,6 +1234,22 @@ impl NotebookLmClient {
             .and_then(|v| v.as_array())
             .ok_or("No se encontraron datos del notebook")?;
 
+        // Debug: log notebook_data_arr structure
+        if let Some(sources_elem) = notebook_data_arr.get(1) {
+            if let Some(sources_arr) = sources_elem.as_array() {
+                info!("DEBUG source-list: {} entries in sources array", sources_arr.len());
+                if let Some(first) = sources_arr.first() {
+                    info!("DEBUG first entry structure: {:?}", first.to_string().chars().take(200).collect::<String>());
+                }
+            } else {
+                info!("DEBUG source-list: sources_elem is NOT an array: {:?}", sources_elem);
+            }
+        } else {
+            info!("DEBUG source-list: notebook_data_arr.get(1) is None");
+            info!("DEBUG notebook_data_arr len: {}", notebook_data_arr.len());
+            info!("DEBUG notebook_data_arr[0]: {:?}", notebook_data_arr.first().map(|v| v.to_string().chars().take(100).collect::<String>()));
+        }
+
         extract_sources_detailed(notebook_data_arr)
             .ok_or_else(|| "No se pudieron extraer las fuentes".to_string())
     }

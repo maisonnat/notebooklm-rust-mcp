@@ -90,6 +90,10 @@ impl ResearchDeepDivePoller {
     ///
     /// Polls until research completes or timeout is reached.
     /// Uses backoff: 2s → 4s → 8s → 10s (cap).
+    ///
+    /// Handles task_id mismatch between QA9ei (start) and e3bVqc (poll):
+    /// If the original task_id is not found in e3bVqc, switches to polling
+    /// without a task_id (returns the latest task) to avoid infinite "not_found" loops.
     pub async fn wait_for_completion(
         &self,
         notebook_id: &str,
@@ -97,6 +101,7 @@ impl ResearchDeepDivePoller {
     ) -> NotebookResult<ResearchStatus> {
         let start = std::time::Instant::now();
         let mut interval = self.config.initial_interval;
+        let mut use_original_id = true;
 
         tracing::info!(
             "Waiting for research {} completion (timeout: {:?})",
@@ -113,7 +118,8 @@ impl ResearchDeepDivePoller {
                 )));
             }
 
-            let status = self.poll_once(notebook_id, Some(task_id)).await?;
+            let current_task_id = if use_original_id { Some(task_id) } else { None };
+            let status = self.poll_once(notebook_id, current_task_id).await?;
 
             if status.is_complete {
                 tracing::info!(
@@ -125,14 +131,30 @@ impl ResearchDeepDivePoller {
                 return Ok(status);
             }
 
+            // If task_id not found in e3bVqc response (status_code == 0),
+            // switch to polling without a specific task_id. This handles the
+            // known QA9ei/e3bVqc task_id mismatch: the original task_id from
+            // start_deep_research may not match IDs in poll responses.
+            if use_original_id && status.status_code == 0 {
+                tracing::warn!(
+                    "Research {} not found in poll response (status_code=0). \
+                     Task ID from QA9ei may not match e3bVqc. \
+                     Switching to latest-task polling.",
+                    task_id
+                );
+                use_original_id = false;
+            }
+
+            let status_label = if use_original_id {
+                "not_found"
+            } else {
+                "in_progress"
+            };
+
             tracing::info!(
                 "Research {} status={} (code: {}), polling in {:?}...",
-                task_id,
-                if status.status_code == 0 {
-                    "not_found"
-                } else {
-                    "in_progress"
-                },
+                if use_original_id { task_id } else { "(latest)" },
+                status_label,
                 status.status_code,
                 interval
             );
