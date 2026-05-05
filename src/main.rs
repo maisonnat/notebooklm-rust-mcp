@@ -293,6 +293,24 @@ enum Commands {
         #[arg(long)]
         timeout_secs: Option<u64>,
     },
+    /// Iniciar investigación profunda asíncrona (no bloqueante)
+    ResearchDeepDiveStart {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// Query de investigación
+        #[arg(long)]
+        query: String,
+    },
+    /// Ver estado de una investigación profunda
+    ResearchDeepDiveStatus {
+        /// UUID de la libreta
+        #[arg(long)]
+        notebook_id: String,
+        /// Task ID (opcional — usa la última si se omite)
+        #[arg(long)]
+        task_id: Option<String>,
+    },
     /// Importar fuentes descubiertas de un Deep Research completado
     ResearchDeepDiveImport {
         /// UUID de la libreta
@@ -2779,6 +2797,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Err(e) => error!("Error iniciando deep research: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando ResearchDeepDiveStart — iniciar deep research asíncrono
+    if let Some(Commands::ResearchDeepDiveStart { notebook_id, query }) = &cli.command {
+        info!("Iniciando deep research asíncrono en notebook {}...", notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+        match client.start_deep_research(notebook_id, query).await {
+            Ok(task_id) => println!("\n=== DEEP RESEARCH INICIADO ===\nTask ID: {}\nUsa: research-deep-dive-status --notebook-id {} --task-id {}\n", task_id, notebook_id, task_id),
+            Err(e) => error!("Error iniciando deep research: {}", e),
+        }
+        return Ok(());
+    }
+
+    // Comando ResearchDeepDiveStatus — ver estado
+    if let Some(Commands::ResearchDeepDiveStatus { notebook_id, task_id }) = &cli.command {
+        let task_id_str = task_id.as_deref().unwrap_or("");
+        info!("Verificando estado de research task='{}' en notebook {}...", task_id_str, notebook_id);
+        let client = NotebookLmClient::new(cookie.clone(), csrf.clone(), sid.clone());
+        match client.poll_research_status(notebook_id, task_id_str).await {
+            Ok(status) => {
+                let status_word = if status.is_complete { "✅ COMPLETED" } else if status.status_code == 0 { "⏳ NO_RESEARCH" } else { "🔄 IN_PROGRESS" };
+                println!("Estado: {}", status_word);
+                println!("Status code: {}", status.status_code);
+                println!("Fuentes descubiertas: {}", status.sources.len());
+                if let Some(report) = &status.report {
+                    println!("Report: {} chars", report.len());
+                }
+                if let Some(q) = &status.query {
+                    println!("Query: {}", q);
+                }
+                if status.is_complete {
+                    println!("\nPara importar fuentes: research-deep-dive-import --notebook-id {} --task-id {}", notebook_id, task_id_str);
+                }
+            }
+            Err(e) => error!("Error obteniendo estado: {}", e),
         }
         return Ok(());
     }
