@@ -773,21 +773,14 @@ impl NotebookLmClient {
         let inner =
             extract_by_rpc_id(&response, "izAoDd").ok_or("No se encontró respuesta izAoDd")?;
 
-        // Extraer source UUID: [[["SOURCE_UUID"]], ...]
-        let arr = inner.as_array().ok_or("Inner no es array")?;
-        let first = arr
-            .first()
-            .ok_or("Array vacío")?
-            .as_array()
-            .ok_or("No es array anidado")?;
-        let first_inner = first
-            .first()
-            .ok_or("Array anidado vacío")?
-            .as_array()
-            .ok_or("No es array")?;
-
-        get_string_at(first_inner, 0)
-            .ok_or_else(|| "No se pudo extraer el UUID de la fuente nueva".to_string())
+        // Extraer source UUID con parser resiliente (prueba múltiples nesting levels)
+        let source_uuid = crate::parser::extract_source_uuid_from_izaoDd(&inner)
+            .ok_or_else(|| {
+                warn!("Could not extract UUID from add_source response. Source was probably added. Verify with source-list.");
+                "unknown_uuid".to_string()
+            })?;
+        info!("Text source added: UUID={}", source_uuid);
+        Ok(source_uuid)
     }
 
     /// Add a URL (web or YouTube) as a source to a notebook.
@@ -811,21 +804,14 @@ impl NotebookLmClient {
         let inner =
             extract_by_rpc_id(&response, "izAoDd").ok_or("No se encontró respuesta izAoDd")?;
 
-        // Extraer source UUID: [[["SOURCE_UUID"]], ...]
-        let arr = inner.as_array().ok_or("Inner no es array")?;
-        let first = arr
-            .first()
-            .ok_or("Array vacío")?
-            .as_array()
-            .ok_or("No es array anidado")?;
-        let first_inner = first
-            .first()
-            .ok_or("Array anidado vacío")?
-            .as_array()
-            .ok_or("No es array")?;
-
-        get_string_at(first_inner, 0)
-            .ok_or_else(|| "No se pudo extraer el UUID de la fuente nueva".to_string())
+        // Extraer source UUID con parser resiliente
+        let source_uuid = crate::parser::extract_source_uuid_from_izaoDd(&inner)
+            .ok_or_else(|| {
+                warn!("Could not extract UUID from add_url response. Source was probably added. Verify with source-list.");
+                "unknown_uuid".to_string()
+            })?;
+        info!("URL source added: UUID={}", source_uuid);
+        Ok(source_uuid)
     }
 
     /// Add a Google Drive document as a source to a notebook.
@@ -861,21 +847,14 @@ impl NotebookLmClient {
         let inner =
             extract_by_rpc_id(&response, "izAoDd").ok_or("No se encontró respuesta izAoDd")?;
 
-        // Extraer source UUID: [[["SOURCE_UUID"]], ...]
-        let arr = inner.as_array().ok_or("Inner no es array")?;
-        let first = arr
-            .first()
-            .ok_or("Array vacío")?
-            .as_array()
-            .ok_or("No es array anidado")?;
-        let first_inner = first
-            .first()
-            .ok_or("Array anidado vacío")?
-            .as_array()
-            .ok_or("No es array")?;
-
-        get_string_at(first_inner, 0)
-            .ok_or_else(|| "No se pudo extraer el UUID de la fuente nueva".to_string())
+        // Extraer source UUID con parser resiliente
+        let source_uuid = crate::parser::extract_source_uuid_from_izaoDd(&inner)
+            .ok_or_else(|| {
+                warn!("Could not extract UUID from add_drive response. Source was probably added. Verify with source-list.");
+                "unknown_uuid".to_string()
+            })?;
+        info!("Drive source added: UUID={}", source_uuid);
+        Ok(source_uuid)
     }
 
     /// Step 1 of file upload: register the file source via RPC.
