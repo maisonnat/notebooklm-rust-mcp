@@ -25,7 +25,7 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
 use tokio::sync::Semaphore;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Detecta el MIME type de un archivo a partir de su extensión.
