@@ -1215,23 +1215,39 @@ impl NotebookLmServer {
                                     "Chat history ({} turns, conv_id: {}):\n{}",
                                     turns.len(),
                                     conv_id,
-                                    lines.join("\n\n")
+                                    lines.join("\n")
                                 )
                             }
                         }
-                        Err(e) => format!("Error getting conversation turns: {}", e),
+                        Err(e) => format!("Error fetching chat history: {}", e),
                     }
                 }
-                Ok(None) => format!("No conversation found for notebook {}", request.notebook_id),
-                Err(e) => format!("Error getting conversation ID: {}", e),
+                Ok(None) => {
+                    // Fallback: check local cache for recent Q&A history
+                    match c.get_cache_history(&request.notebook_id).await {
+                        Some(msgs) if !msgs.is_empty() => {
+                            let lines: Vec<String> = msgs
+                                .iter()
+                                .map(|m| format!("[user] {}\n[ai] {}", m.question, m.answer))
+                                .collect();
+                            format!(
+                                "No server-side chat history found. Using local cache ({} turns):\n{}",
+                                msgs.len(),
+                                lines.join("\n")
+                            )
+                        }
+                        _ => format!(
+                            "No conversation history found for notebook {}. Try asking a question first.",
+                            request.notebook_id
+                        ),
+                    }
+                }
+                Err(e) => format!("Error fetching conversation ID: {}", e),
             }
         } else {
             "Error: Servidor no autenticado".into()
         }
     }
-
-    // --- Research Deep Dive Tools ---
-
     #[tool(
         name = "research_deep_dive_start",
         description = "Start a deep research investigation using Google's autonomous research engine. Returns a task_id immediately without blocking. Use research_deep_dive_status to poll progress."

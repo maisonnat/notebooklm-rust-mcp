@@ -106,7 +106,7 @@ pub use crate::source_poller::SourcePoller;
 
 // Re-exportar conversation cache
 pub use crate::conversation_cache::{
-    ConversationCache, SharedConversationCache, new_conversation_cache,
+    ConversationCache, SharedConversationCache, new_conversation_cache, ConversationMessage,
 };
 
 // Re-exportar artifact types
@@ -539,6 +539,12 @@ impl NotebookLmClient {
 
         info!("Parsed {} notebooks from wXbhsf response", notebooks.len());
         Ok(notebooks)
+    }
+
+    /// Get conversation history from the local cache.
+    /// Falls back when Google servers have no conversation ID yet.
+    pub async fn get_cache_history(&self, notebook_id: &str) -> Option<Vec<ConversationMessage>> {
+        self.conversation_cache.get_history(notebook_id).await
     }
 
     pub async fn create_notebook(&self, title: &str) -> Result<String, String> {
@@ -2578,27 +2584,11 @@ impl NotebookLmClient {
     const CIRCUIT_BREAKER_COOLDOWN: Duration = Duration::from_secs(60);
 
     /// Check if the circuit breaker allows requests.
-    /// Returns Err with a descriptive message if the circuit is open.
+    /// DISABLED: auto-CSRF refresh handles transient auth failures.
+    /// The old circuit breaker caused false positives: note_create/chat_history
+    /// endpoints triggered it even when ask_question (different endpoint) worked.
+    /// Auth failures are handled by individual retry + CSRF refresh logic instead.
     fn check_circuit_breaker(&self) -> Result<(), String> {
-        use std::sync::atomic::Ordering;
-
-        let count = self.auth_error_count.load(Ordering::Relaxed);
-
-        if count >= Self::CIRCUIT_BREAKER_THRESHOLD
-            && let Ok(guard) = self.circuit_opened_at.lock()
-            && let Some(opened_at) = *guard
-            && opened_at.elapsed() < Self::CIRCUIT_BREAKER_COOLDOWN
-        {
-            let remaining =
-                Self::CIRCUIT_BREAKER_COOLDOWN.as_secs() - opened_at.elapsed().as_secs();
-            return Err(format!(
-                "Circuit breaker OPEN after {} consecutive auth errors. \
-                 Run `notebooklm-mcp auth-browser` to re-autenticar. \
-                 Cooldown: {}s remaining.",
-                count, remaining
-            ));
-        }
-        // If cooldown elapsed → half-open: allow probe (fall through to Ok)
         Ok(())
     }
 
