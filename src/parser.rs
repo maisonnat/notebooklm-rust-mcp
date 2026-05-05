@@ -86,6 +86,37 @@ pub fn get_uuid_at(array: &[Value], index: usize) -> Option<String> {
     }
 }
 
+/// Extrae el UUID de una fuente nueva desde la respuesta izAoDd.
+///
+/// El formato de respuesta varía entre notebooks:
+/// - Formato A (doble wrapped): `[[uuid], ...]`
+/// - Formato B (triple wrapped): `[[[uuid]], ...]`
+///
+/// Prueba ambos formatos antes de rendirse. Si falla, la fuente probablemente
+/// se agregó igual — llamar source-list para verificar.
+pub fn extract_source_uuid_from_izaoDd(inner: &Value) -> Option<String> {
+    let arr = inner.as_array()?;
+    let first = arr.first()?.as_array()?;
+
+    // Try triple-wrapped first: [[[uuid]], ...]
+    if let Some(inner_arr) = first.first()?.as_array() {
+        if let Some(uuid) = inner_arr.first()?.as_str() {
+            if uuid.len() == 36 {
+                return Some(uuid.to_string());
+            }
+        }
+    }
+
+    // Try double-wrapped: [[uuid], ...]
+    if let Some(uuid) = first.first()?.as_str() {
+        if uuid.len() == 36 {
+            return Some(uuid.to_string());
+        }
+    }
+
+    None
+}
+
 /// Limpia el prefijo anti-XSSI de las respuestas HTTP de Google
 /// El prefijo es: )]}'\n
 /// Google batchexecute responde con MULTIPLES chunks separados por newlines.
